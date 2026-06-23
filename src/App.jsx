@@ -574,7 +574,7 @@ function PainelFeedbackWhatsApp({ os, cfg }) {
 }
 
 function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncerrar,
-  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja}){
+  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja,isGer,onEditarTrecho}){
 
   const trechoAberto  = trechos.find(d=>(d.saidaLoja||d.saida)&&!d.retorno);
   const ultimoTrecho  = trechos.length>0?trechos[trechos.length-1]:null;
@@ -635,6 +635,11 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
                 <div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Saída </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.saidaLoja||d.saida)}</span></div>
                 {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
                 {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{dur}h</div>}
+                {isGer&&onEditarTrecho&&(
+                  <button style={{background:"transparent",border:"1px solid #D0CEC9",color:"#666",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer",flexShrink:0}} onClick={()=>onEditarTrecho(d)}>
+                    ✏
+                  </button>
+                )}
               </div>
             );
           })}
@@ -645,6 +650,13 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
             </div>
           )}
         </div>
+      )}
+
+      {/* Gerência: adicionar registro manual de horário esquecido */}
+      {isGer&&onEditarTrecho&&(
+        <button style={{...btnS,width:"100%",padding:"10px",fontSize:12,marginBottom:trechos.length>0?8:0}} onClick={()=>onEditarTrecho({id:Date.now(),saida:null,retorno:null})}>
+          ➕ Adicionar registro manual de horário
+        </button>
       )}
 
       {/* ── A: Saí da loja ── */}
@@ -987,7 +999,7 @@ function Login({onLogin}){
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
   useEffect(()=>{storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});}, []);
   function handle(){
-    const u=usuarios.find(x=>x.login===login.trim()&&x.senha===senha);
+    const u=usuarios.find(x=>x.login.trim().toLowerCase()===login.trim().toLowerCase()&&x.senha===senha);
     if(!u){setErr("Usuário ou senha incorretos");return;}
     onLogin(u);
   }
@@ -1086,7 +1098,7 @@ function GestaoUsuarios({onBack}){
   async function save(n){setUsuarios(n);await storageSet("polar_usuarios",n);}
   function handleAdd(){
     if(!form.nome||!form.login||!form.senha){setErr("Preencha todos os campos");return;}
-    if(usuarios.find(u=>u.login===form.login&&u.id!==editId)){setErr("Login já existe");return;}
+    if(usuarios.find(u=>u.login.trim().toLowerCase()===form.login.trim().toLowerCase()&&u.id!==editId)){setErr("Login já existe");return;}
     const n=editId?usuarios.map(u=>u.id===editId?{...u,...form}:u):[...usuarios,{...form,id:"u"+Date.now()}];
     save(n);setForm({nome:"",login:"",senha:"",role:"tecnico"});setEditId(null);setErr("");
   }
@@ -1406,7 +1418,7 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
   },[fogos]);
 
   function confirmar(){
-    const ger=usuarios.find(u=>u.login===login.trim()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    const ger=usuarios.find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
     if(!ger){setErr("Login ou senha de gerente incorretos.");return;}
     onConfirmar(ger);
   }
@@ -1492,6 +1504,94 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
 
 
 // ── MODAL: Reatribuir OS a outro técnico ─────────────────────────────────
+// ── MODAL: Editar horário manualmente (gerência) ──────────────────────────
+function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
+  function toDatetimeLocal(iso){
+    if(!iso)return "";
+    const d=new Date(iso);
+    const pad=n=>String(n).padStart(2,"0");
+    return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())+"T"+pad(d.getHours())+":"+pad(d.getMinutes());
+  }
+  function fromDatetimeLocal(v){
+    if(!v)return null;
+    return new Date(v).toISOString();
+  }
+
+  const[saidaVal,setSaidaVal]=useState(toDatetimeLocal(trecho.saidaLoja||trecho.saida));
+  const[retornoVal,setRetornoVal]=useState(toDatetimeLocal(trecho.chegadaLoja||trecho.retorno));
+  const[login,setLogin]=useState("");
+  const[senha,setSenha]=useState("");
+  const[err,setErr]=useState("");
+  const[confirmandoExclusao,setConfirmandoExclusao]=useState(false);
+
+  function validarGerente(){
+    const ger=(usuarios||[]).find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErr("Login ou senha de gerente incorretos.");return null;}
+    return ger;
+  }
+
+  function salvar(){
+    const ger=validarGerente();
+    if(!ger)return;
+    const novaSaida=fromDatetimeLocal(saidaVal);
+    const novoRetorno=fromDatetimeLocal(retornoVal);
+    if(!novaSaida){setErr("Informe pelo menos o horário de saída.");return;}
+    if(novoRetorno&&new Date(novoRetorno)<new Date(novaSaida)){setErr("O retorno não pode ser antes da saída.");return;}
+    onConfirmar({saida:novaSaida,retorno:novoRetorno,editadoPor:ger.nome,editadoEm:new Date().toISOString()});
+  }
+
+  function excluir(){
+    const ger=validarGerente();
+    if(!ger)return;
+    onExcluir();
+  }
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onFechar}>
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:420,width:"100%",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4,color:"#1A1A1A"}}>✏ Editar registro de horário</div>
+        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Use isso quando o técnico esqueceu de registrar saída ou retorno.</div>
+
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Saída da loja</label>
+        <input type="datetime-local" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:14,boxSizing:"border-box"}} value={saidaVal} onChange={e=>setSaidaVal(e.target.value)}/>
+
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Retorno à loja (opcional)</label>
+        <input type="datetime-local" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:20,boxSizing:"border-box"}} value={retornoVal} onChange={e=>setRetornoVal(e.target.value)}/>
+
+        <div style={{background:"#FFF8E1",border:"1px solid #FFE082",borderRadius:10,padding:16,marginBottom:16}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#E65100",textTransform:"uppercase",marginBottom:10,letterSpacing:1}}>Confirmação do gerente</div>
+          <input style={{width:"100%",background:"#FFFFFF",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:10,boxSizing:"border-box"}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
+          <input type="password" style={{width:"100%",background:"#FFFFFF",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="senha" onKeyDown={e=>e.key==="Enter"&&salvar()}/>
+        </div>
+
+        {err&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:14,fontWeight:600}}>⚠ {err}</div>}
+
+        {!confirmandoExclusao?(
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",gap:10}}>
+              <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={onFechar}>Cancelar</button>
+              <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={salvar}>Salvar alteração</button>
+            </div>
+            <button style={{background:"transparent",color:"#B71C1C",border:"1px solid #FFCDD2",borderRadius:8,padding:"10px",fontWeight:600,fontSize:13,cursor:"pointer"}} onClick={()=>setConfirmandoExclusao(true)}>
+              🗑 Excluir este registro
+            </button>
+          </div>
+        ):(
+          <div>
+            <div style={{fontSize:13,color:"#B71C1C",marginBottom:12,fontWeight:600}}>Tem certeza? Esta ação não pode ser desfeita.</div>
+            <div style={{display:"flex",gap:10}}>
+              <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={()=>setConfirmandoExclusao(false)}>Cancelar</button>
+              <button style={{flex:1,background:"#B71C1C",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={excluir}>Sim, excluir</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ── MODAL: Reatribuir OS a outro técnico ─────────────────────────────────
 function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
   const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico");
   const[selecionado,setSelecionado]=useState(null);
@@ -1534,6 +1634,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
   const emGarantia=os.status==="em_garantia";
   const [telaConclusao,setTelaConclusao]=useState(false);
   const [atribuindo,setAtribuindo]=useState(false);
+  const [editandoTrecho,setEditandoTrecho]=useState(null); // {tipo:"servico"|"garantia", trecho}
   const [errGeo,setErrGeo]=useState("");
 
   // Coordenadas da loja: Av. Washington Luiz, 1080 – Espírito Santo do Pinhal - SP
@@ -1636,6 +1737,55 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     onUpdate({...os,tecnicoAtribuido:tecnico.id,tecnicoAtribuidoNome:tecnico.nome,savedAt:new Date().toISOString()});
     setAtribuindo(false);
   }
+
+  function salvarHorarioEditado(dados){
+    if(!editandoTrecho)return;
+    const{tipo,trecho}=editandoTrecho;
+    const lista=tipo==="garantia"?[...gars]:[...desl];
+    const idx=lista.findIndex(d=>d.id===trecho.id);
+    if(idx>=0){
+      // Editando trecho existente — mantém os demais campos do fluxo intactos
+      const atual=lista[idx];
+      lista[idx]={
+        ...atual,
+        saida:dados.saida,
+        saidaLoja:atual.saidaLoja?dados.saida:atual.saidaLoja,
+        retorno:dados.retorno,
+        chegadaLoja:atual.chegadaLoja?dados.retorno:atual.chegadaLoja,
+        editadoManualmentePor:dados.editadoPor,
+        editadoManualmenteEm:dados.editadoEm
+      };
+    } else {
+      // Novo registro manual — técnico esqueceu de registrar
+      lista.push({
+        id:trecho.id,
+        saida:dados.saida,
+        saidaLoja:dados.saida,
+        retorno:dados.retorno,
+        chegadaLoja:dados.retorno,
+        criadoManualmentePor:dados.editadoPor,
+        criadoManualmenteEm:dados.editadoEm
+      });
+    }
+    const campo=tipo==="garantia"?"garantias":"deslocamentos";
+    const patch={...os,[campo]:lista,savedAt:new Date().toISOString()};
+    if(tipo!=="garantia")patch.hReal=parseFloat(somaHoras(lista).toFixed(2));
+    onUpdate(patch);
+    setEditandoTrecho(null);
+  }
+
+  function excluirHorarioEditado(){
+    if(!editandoTrecho)return;
+    const{tipo,trecho}=editandoTrecho;
+    const origem=tipo==="garantia"?gars:desl;
+    const lista=origem.filter(d=>d.id!==trecho.id);
+    const campo=tipo==="garantia"?"garantias":"deslocamentos";
+    const patch={...os,[campo]:lista,savedAt:new Date().toISOString()};
+    if(tipo!=="garantia")patch.hReal=parseFloat(somaHoras(lista).toFixed(2));
+    onUpdate(patch);
+    setEditandoTrecho(null);
+  }
+
   function saidaGarantia(){
     const agora=new Date().toISOString();
     onUpdate({...os,garantias:[...gars,{id:Date.now(),saida:agora,retorno:null}],savedAt:agora});
@@ -1673,6 +1823,15 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
         usuarios={usuarios||[]}
         onConfirmar={atribuirTecnico}
         onFechar={()=>setAtribuindo(false)}
+      />
+    )}
+    {editandoTrecho&&(
+      <ModalEditarHorario
+        trecho={editandoTrecho.trecho}
+        usuarios={usuarios||[]}
+        onConfirmar={salvarHorarioEditado}
+        onExcluir={excluirHorarioEditado}
+        onFechar={()=>setEditandoTrecho(null)}
       />
     )}
     <div>
@@ -1741,6 +1900,8 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
           execucaoInline={emAndamento&&!os.concluidoEm}
           os={os}
           onUpdateOS={onUpdate}
+          isGer={isGer}
+          onEditarTrecho={trecho=>setEditandoTrecho({tipo:"servico",trecho})}
         />
       )}
 
@@ -1758,6 +1919,8 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
           labelSaida="Saí para garantia"
           labelRetorno="Retornei à loja"
           labelEncerrar="Encerrar garantia"
+          isGer={isGer}
+          onEditarTrecho={trecho=>setEditandoTrecho({tipo:"garantia",trecho})}
         />
       )}
 
@@ -2250,7 +2413,7 @@ export default function App(){
             {isAdmin&&<NavBtn id="ferramentas" label="🔧 Ferramentas"/>}
             {!isAdmin&&<button style={{...btnP,padding:"6px 14px",fontSize:13}} onClick={()=>{setCur(null);setEditMode(false);setView("form");setTab("os");}}>+ Nova OS</button>}
           </>}
-          {view!=="list"&&<button style={btnS} onClick={()=>setView(cur?"detail":"list")}>← Voltar</button>}
+          {view!=="list"&&<button style={btnS} onClick={()=>setView(view==="detail"?"list":(cur?"detail":"list"))}>← Voltar</button>}
           <button style={{...btnS,padding:"6px 10px",fontSize:12}} onClick={handleLogout}>Sair</button>
         </div>
       </div>
