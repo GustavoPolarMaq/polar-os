@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#CC1F1F" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Polar OS" />
+    <title>Polar Serviços — OS</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{background:#F0F0EE;font-family:"Segoe UI",sans-serif}
+      input,select,textarea{font-family:inherit}
+      ::-webkit-scrollbar{width:6px}
+      ::-webkit-scrollbar-track{background:#F0F0EE}
+      ::-webkit-scrollbar-thumb{background:#CCCCCC;border-radius:3px}
+    </style>
+
+    <!-- Firebase SDK (compat) — expoe window.firebase globalmente -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyAXHfDMhoiZ11l-k_rsnxmSfb-hhmQ0_fI",
+        authDomain: "os-polar-maquinas.firebaseapp.com",
+        projectId: "os-polar-maquinas",
+        storageBucket: "os-polar-maquinas.firebasestorage.app",
+        messagingSenderId: "1089817667552",
+        appId: "1:1089817667552:web:392faac594d02537a9ed85"
+      };
+      firebase.initializeApp(firebaseConfig);
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
