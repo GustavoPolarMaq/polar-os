@@ -1177,9 +1177,6 @@ function Form({init,usuario,cfg,onSave,onCancel}){
 
   function s(k,v){setOs(p=>({...p,[k]:v}));}
   useEffect(()=>{
-    if(!init){genNum().then(n=>s("numero",n));}
-  },[]);
-  useEffect(()=>{
     if(!os.valorTotalEditado&&!jaAprovado){
       setOs(p=>({...p,valorTotal:calcValorServico(p.hEst,cfg,p.mats)}));
     }
@@ -1196,7 +1193,11 @@ function Form({init,usuario,cfg,onSave,onCancel}){
   function upMat(id,k,v){s("mats",os.mats.map(m=>m.id===id?{...m,[k]:v}:m));}
   function rmMat(id){s("mats",os.mats.filter(m=>m.id!==id));}
   const [errFoto, setErrFoto] = useState("");
-  function salvar(sf){onSave({...os,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()});}
+  async function salvar(sf){
+    let numeroFinal=os.numero;
+    if(numeroFinal==="gerando..."){numeroFinal=await genNum();}
+    onSave({...os,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()});
+  }
   function concluir(){
     if((os.fotosAntes||[]).length===0){setErrFoto("Adicione pelo menos 1 foto ANTES do serviço.");return;}
     if((os.fotosDepois||[]).length===0){setErrFoto("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
@@ -1592,6 +1593,29 @@ function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
 
 
 // ── MODAL: Reatribuir OS a outro técnico ─────────────────────────────────
+// ── MODAL: Senha do gerente para liberar saída/retorno da loja ──────────
+function ModalSenhaGerente({onConfirmar,onFechar,err}){
+  const[login,setLogin]=useState("");
+  const[senha,setSenha]=useState("");
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onFechar}>
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:380,width:"100%"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4,color:"#1A1A1A"}}>🔐 Autorização do gerente</div>
+        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Um gerente precisa confirmar esta saída/retorno da loja.</div>
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Login</label>
+        <input style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:14,boxSizing:"border-box"}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha</label>
+        <input type="password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:16,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&onConfirmar(login,senha)}/>
+        {err&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:14,fontWeight:600}}>⚠ {err}</div>}
+        <div style={{display:"flex",gap:10}}>
+          <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={onFechar}>Cancelar</button>
+          <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={()=>onConfirmar(login,senha)}>Confirmar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
   const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico");
   const[selecionado,setSelecionado]=useState(null);
@@ -1635,36 +1659,22 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
   const [telaConclusao,setTelaConclusao]=useState(false);
   const [atribuindo,setAtribuindo]=useState(false);
   const [editandoTrecho,setEditandoTrecho]=useState(null); // {tipo:"servico"|"garantia", trecho}
-  const [errGeo,setErrGeo]=useState("");
+  const [confirmacaoPendente,setConfirmacaoPendente]=useState(null); // função a executar após senha
+  const [errSenha,setErrSenha]=useState("");
 
-  // Coordenadas da loja: Av. Washington Luiz, 1080 – Espírito Santo do Pinhal - SP
-  const LOJA_LAT=-22.197376;
-  const LOJA_LNG=-46.763017;
-  const RAIO_M=2500;
-
-  function distancia(lat1,lon1,lat2,lon2){
-    const R=6371000;
-    const dLat=(lat2-lat1)*Math.PI/180;
-    const dLon=(lon2-lon1)*Math.PI/180;
-    const a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)*Math.sin(dLon/2);
-    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  // Verificação por senha do gerente — substitui geolocalização
+  function verificarSenhaGerente(onSucesso){
+    setErrSenha("");
+    setConfirmacaoPendente(()=>onSucesso);
   }
 
-  function verificarGeo(onSucesso){
-    setErrGeo("📍 Obtendo localização...");
-    if(!navigator.geolocation){setErrGeo("GPS não disponível neste dispositivo.");return;}
-    navigator.geolocation.getCurrentPosition(
-      pos=>{
-        const dist=distancia(pos.coords.latitude,pos.coords.longitude,LOJA_LAT,LOJA_LNG);
-        if(dist<=RAIO_M){setErrGeo("");onSucesso();}
-        else{setErrGeo("Você está a "+Math.round(dist)+"m da loja (precisão GPS: "+Math.round(pos.coords.accuracy)+"m).");}
-      },
-      err=>{
-        const msgs={1:"Permissão de GPS negada. Toque no 🔒 e permita localização.",2:"GPS indisponível agora. Vá para área aberta.",3:"Tempo esgotado. Tente novamente."};
-        setErrGeo(msgs[err.code]||"Erro GPS. Tente novamente.");
-      },
-      {enableHighAccuracy:true,timeout:15000,maximumAge:0}
-    );
+  function confirmarSenhaGerente(login,senha){
+    const ger=(usuarios||[]).find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErrSenha("Login ou senha de gerente incorretos.");return;}
+    setErrSenha("");
+    const fn=confirmacaoPendente;
+    setConfirmacaoPendente(null);
+    if(fn)fn(ger);
   }
 
   function iniciar(){
@@ -1672,17 +1682,17 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     onUpdate({...os,status:"em_andamento",iniciadoEm:agora,etapaExecucao:0,savedAt:agora});
   }
 
-  // Saiu DA LOJA — requer geo
+  // Saiu DA LOJA — requer senha do gerente
   function saidaLoja(){
-    verificarGeo(()=>{
+    verificarSenhaGerente((ger)=>{
       const agora=new Date().toISOString();
       // Zerar recolhimento — técnico ainda não recolheu ao sair novamente
       const ferrZeradas=(os.ferramentasOS||[]).map(f=>({...f,devolvido:false,devolvidoEm:null}));
-      onUpdate({...os,deslocamentos:[...desl,{id:Date.now(),saidaLoja:agora,chegadaLocal:null,saidaLocal:null,chegadaLoja:null,retorno:null}],ferramentasOS:ferrZeradas,etapaExecucao:0,savedAt:agora});
+      onUpdate({...os,deslocamentos:[...desl,{id:Date.now(),saidaLoja:agora,chegadaLocal:null,saidaLocal:null,chegadaLoja:null,retorno:null,liberadoPorSaida:ger.nome}],ferramentasOS:ferrZeradas,etapaExecucao:0,savedAt:agora});
     });
   }
 
-  // Chegou no LOCAL do serviço — sem geo
+  // Chegou no LOCAL do serviço — sem senha
   function chegadaLocal(){
     const agora=new Date().toISOString();
     const nd=[...desl];const idx=nd.findIndex(d=>d.saidaLoja&&!d.chegadaLocal);
@@ -1690,7 +1700,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     onUpdate({...os,deslocamentos:nd,etapaExecucao:0,savedAt:agora});
   }
 
-  // Saiu do LOCAL — sem geo, mas ferramentas obrigatórias
+  // Saiu do LOCAL — sem senha, mas ferramentas obrigatórias
   function saidaLocal(){
     const agora=new Date().toISOString();
     const nd=[...desl];const idx=nd.findIndex(d=>d.chegadaLocal&&!d.saidaLocal);
@@ -1698,12 +1708,12 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     onUpdate({...os,deslocamentos:nd,savedAt:agora});
   }
 
-  // Chegou NA LOJA — requer geo
+  // Chegou NA LOJA — requer senha do gerente
   function chegadaLoja(){
-    verificarGeo(()=>{
+    verificarSenhaGerente((ger)=>{
       const agora=new Date().toISOString();
       const nd=[...desl];const idx=nd.findIndex(d=>d.saidaLocal&&!d.chegadaLoja);
-      if(idx>=0)nd[idx]={...nd[idx],chegadaLoja:agora,retorno:agora};
+      if(idx>=0)nd[idx]={...nd[idx],chegadaLoja:agora,retorno:agora,liberadoPorRetorno:ger.nome};
       onUpdate({...os,deslocamentos:nd,hReal:parseFloat(somaHoras(nd).toFixed(2)),savedAt:agora});
     });
   }
@@ -1834,6 +1844,13 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
         onFechar={()=>setEditandoTrecho(null)}
       />
     )}
+    {confirmacaoPendente&&(
+      <ModalSenhaGerente
+        err={errSenha}
+        onConfirmar={confirmarSenhaGerente}
+        onFechar={()=>{setConfirmacaoPendente(null);setErrSenha("");}}
+      />
+    )}
     <div>
       {/* header + serviço — card único com fundo escuro */}
       <div style={{background:"#2C2C2C",borderRadius:14,padding:20,marginBottom:16,border:"1px solid #3A3A3A",boxShadow:"0 2px 8px rgba(0,0,0,0.18)"}}>
@@ -1880,8 +1897,6 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Diagnóstico / Executado</div><div style={{fontSize:14,color:"#E0E0E0",whiteSpace:"pre-wrap"}}>{os.relatorio||[os.diag,os.exec,os.obsExec].filter(Boolean).join("\n\n")}</div></div>
         )}
       </div>
-
-      {errGeo&&<div style={{...card,borderColor:C.red+"66",background:"#FFEBEE",color:C.red,fontSize:13,fontWeight:600,padding:"12px 16px"}}>📍 {errGeo}</div>}
 
       {/* painel de trechos — serviço principal */}
       {(desl.length>0||emAndamento)&&(
