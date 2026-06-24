@@ -636,8 +636,8 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
                 {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
                 {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{dur}h</div>}
                 {isGer&&onEditarTrecho&&(
-                  <button style={{background:"transparent",border:"1px solid #D0CEC9",color:"#666",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer",flexShrink:0}} onClick={()=>onEditarTrecho(d)}>
-                    ✏
+                  <button style={{background:"#1565C0",border:"none",color:"#FFFFFF",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}} onClick={()=>onEditarTrecho(d)}>
+                    ✏ Editar
                   </button>
                 )}
               </div>
@@ -875,7 +875,7 @@ function GestaoFerramentas({onBack}){
       <div style={card}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>Ferramentas cadastradas ({ferramentas.length})</div>
         {ferramentas.length===0&&<div style={{color:C.gray,fontSize:13,textAlign:"center",padding:"20px 0"}}>Nenhuma ferramenta cadastrada ainda.</div>}
-        {ferramentas.map(f=>(
+        {[...ferramentas].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR",{sensitivity:"base"})).map(f=>(
           <div key={f.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:`1px solid ${C.navyLight}`,opacity:f.ativo?1:0.5}}>
             <div style={{width:40,height:40,borderRadius:8,background:C.amber+"22",border:"1px solid "+C.amber+"44",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace",fontWeight:700,color:C.amber,fontSize:13,flexShrink:0}}>#{String(f.fid).padStart(2,"0")}</div>
             <div style={{flex:1,minWidth:0}}>
@@ -915,7 +915,7 @@ function SeletorFerramentas({selecionadas,onChange}){
       <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.orange,textTransform:"uppercase",marginBottom:4}}>🔧 Ferramentas que está levando</div>
       <div style={{fontSize:12,color:C.gray,marginBottom:14}}>Selecione todas as ferramentas que vai levar para o serviço.</div>
       <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {ferramentas.map(f=>{
+        {[...ferramentas].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR",{sensitivity:"base"})).map(f=>{
           const sel=selecionadas.find(s=>s.fid===f.fid);
           return(
             <label key={f.fid} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:8,border:`1px solid ${sel?C.orange:C.navyLight}`,background:sel?C.orange+"11":C.surface,cursor:"pointer",userSelect:"none"}}>
