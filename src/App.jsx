@@ -2028,7 +2028,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
           )}
           <div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:8}}>
             <button style={btnPu} onClick={()=>gerarPDF(os)}>📄 Gerar PDF</button>
-            <button style={btnP} onClick={iniciar}>🚀 Iniciar serviço</button>
+            <button style={btnP} onClick={iniciar}>🚀 Iniciar processo</button>
           </div>
         </div>
       )}
@@ -2386,15 +2386,15 @@ export default function App(){
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
   useEffect(()=>{
     storageGet("polar_os").then(d=>{if(d)setLista(d);});
-    storageGet("polar_sessao").then(u=>{if(u)setUsuario(u);});
+    // Sessão não é persistida — login obrigatório a cada acesso
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
     storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
   },[]);
   async function saveList(l){setLista(l);await storageSet("polar_os",l);}
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
-  function handleLogin(u){setUsuario(u);storageSet("polar_sessao",u);}
-  function handleLogout(){setUsuario(null);storageSet("polar_sessao",null);setView("list");setTab("os");}
+  function handleLogin(u){setUsuario(u);}
+  function handleLogout(){setUsuario(null);setView("list");setTab("os");}
   function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl);setCur(os);setView("detail");setTab("os");}
   function handleUpdate(os){const nl=lista.map(x=>x.numero===os.numero?os:x);saveList(nl);setCur(os);}
   const isGer=(usuario&&usuario.role)==="gerencia"||(usuario&&usuario.role)==="admin";
