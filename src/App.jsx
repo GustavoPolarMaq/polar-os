@@ -21,11 +21,11 @@ const C={
 };
 
 const SERVICOS = [
-  {n:"Troca de resistência",h:60},{n:"Instalação de chuveiro",h:90},
-  {n:"Troca de torneira",h:60},{n:"Instalação de vaso sanitário",h:90},
-  {n:"Montagem de armário",h:150},{n:"Instalação de aquecedor",h:120},
-  {n:"Gás – instalação de fogão",h:90},{n:"Gás – ramal/revisão",h:180},
-  {n:"Serviço personalizado",h:60}
+  {n:"Troca de resistência",h:1},{n:"Instalação de chuveiro",h:1.5},
+  {n:"Troca de torneira",h:1},{n:"Instalação de vaso sanitário",h:1.5},
+  {n:"Montagem de armário",h:2.5},{n:"Instalação de aquecedor",h:2},
+  {n:"Gás – instalação de fogão",h:1.5},{n:"Gás – ramal/revisão",h:3},
+  {n:"Serviço personalizado",h:1}
 ];
 
 const USUARIOS_PADRAO = [
@@ -94,7 +94,7 @@ function formatTel(v) {
 }
 
 function calcValorServico(hEst,cfg,mats=[]){
-  const h=(parseFloat(hEst)||0)/60; // minutos -> horas
+  const h=parseFloat(hEst)||0;
   const totMat=mats.reduce((a,m)=>a+(parseFloat(m.v)||0),0);
   const mo=h*cfg.precoHora;
   const variavel=mo*((cfg.imprevisto+cfg.ferramentas)/100);
@@ -171,16 +171,10 @@ function comprimirImagem(file, maxW=1200, qualidade=0.72) {
   return new Promise((resolve, reject) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo) {
-      if(file.size > 100 * 1024 * 1024){
-        reject(new Error("Vídeo muito grande (máx 100MB)"));
-        return;
-      }
-      const reader2 = new FileReader();
-      reader2.onerror = reject;
-      reader2.onload = ev => {
-        resolve({ tipo:"video", nome:file.name, mime:file.type, src:ev.target.result, tamanho:file.size, ts:new Date().toISOString() });
-      };
-      reader2.readAsDataURL(file);
+      // vídeos: só armazena metadados + thumbnail se possível; base64 full é inviável
+      // guardamos nome, tipo, tamanho e um dataURL thumb via canvas se for mp4
+      const url = URL.createObjectURL(file);
+      resolve({ tipo:"video", nome:file.name, mime:file.type, src:url, tamanho:file.size, ts:new Date().toISOString() });
       return;
     }
     const reader = new FileReader();
@@ -302,12 +296,7 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
               onClick={e => e.stopPropagation()} />
           ) : (
             <div style={{ textAlign: "center" }} onClick={e => e.stopPropagation()}>
-              <video
-                src={ampliado.src}
-                controls
-                playsInline
-                onClick={e=>e.stopPropagation()}
-                style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8, display: "block" }} />
+              <video src={ampliado.src} controls style={{ maxWidth: "100%", maxHeight: "80vh", borderRadius: 8 }} />
               <div style={{ color: "#fff", marginTop: 8, fontSize: 13 }}>{ampliado.nome}</div>
             </div>
           )}
@@ -321,7 +310,7 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
 
 
 // ── COMPONENTE: ASSINATURA DO CLIENTE ────────────────────────────────────
-function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssinado,onTracoFinalizado}){
+function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssinado}){
   const [desenhando,setDesenhando]=useState(false);
   function getPos(e,cv){
     const r=cv.getBoundingClientRect();
@@ -331,12 +320,7 @@ function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssin
   }
   function iniciar(e){if(somenteLeitura)return;e.preventDefault();const cv=canvasRef.current;const p=getPos(e,cv);cv.getContext("2d").beginPath();cv.getContext("2d").moveTo(p.x,p.y);setDesenhando(true);}
   function mover(e){if(!desenhando||somenteLeitura)return;e.preventDefault();const cv=canvasRef.current;const ctx=cv.getContext("2d");const p=getPos(e,cv);ctx.lineWidth=2.5;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#1A1A1A";ctx.lineTo(p.x,p.y);ctx.stroke();if(!temTraco)setTemTraco(true);}
-  function parar(e){
-    if(!desenhando)return;
-    e.preventDefault();
-    setDesenhando(false);
-    if(onTracoFinalizado&&canvasRef.current)onTracoFinalizado(canvasRef.current);
-  }
+  function parar(e){if(!desenhando)return;e.preventDefault();setDesenhando(false);}
   return(
     <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:"#FFFFFF",touchAction:"none",width:"100%",height:"100%"}}>
       <canvas ref={canvasRef} width={900} height={400}
@@ -352,7 +336,7 @@ function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssin
   );
 }
 
-function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar }) {
+function PainelAssinatura({ assinatura, onChange, somenteLeitura }) {
   const canvasRef = useRef(null);
   const canvasFullRef = useRef(null);
   const [temTraco, setTemTraco] = useState(false);
@@ -464,20 +448,15 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
 
         {/* canvas compacto no card */}
         <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:C.surface,marginBottom:12,touchAction:"none",height:160}}>
-          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!autoConfirmar)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
-              onTracoFinalizado={autoConfirmar?cv=>{
-                if(!cv)return;
-                const img=cv.toDataURL("image/png");
-                onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});
-              }:null}/>
+          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||jaAssinado} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}/>
         </div>
 
         {!somenteLeitura&&!jaAssinado&&(
           <>
             <label style={lbl}>Nome do cliente (opcional)</label>
             <input style={{...inp,marginBottom:12}} value={nomeCliente} onChange={e=>setNomeCliente(e.target.value)} placeholder="Nome legível do cliente"/>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              <div style={{fontSize:12,color:C.steel,flex:1}}>✏ Assine acima — será confirmada ao clicar em "🚗 Saí do local"</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <button style={{...btnG,opacity:temTraco?1:0.45,cursor:temTraco?"pointer":"not-allowed"}} onClick={()=>confirmar(canvasRef)}>✓ Confirmar assinatura</button>
               <button style={btnS} onClick={limpar}>🗑 Limpar</button>
             </div>
           </>
@@ -560,7 +539,7 @@ function PainelFeedbackWhatsApp({ os, cfg }) {
         </div>
         {/* contador ou status */}
         {!enviado && !pronto && (
-          <div style={{textAlign:"center",background:C.surface,borderRadius:10,padding:"8px 16px",minWidth:4800}}>
+          <div style={{textAlign:"center",background:C.surface,borderRadius:10,padding:"8px 16px",minWidth:80}}>
             <div style={{fontFamily:"monospace",fontSize:20,fontWeight:700,color:C.amber}}>{minFmt(msFaltando)}</div>
             <div style={{fontSize:9,color:C.gray,textTransform:"uppercase",letterSpacing:1}}>restantes</div>
           </div>
@@ -611,11 +590,9 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     return true;
   }
 
-  // "Saí do local" — valida ferramentas e confirma assinatura automaticamente
+  // "Saí do local" — valida ferramentas ANTES de liberar
   function handleSaidaLocal(){
     if(!ferrOk())return;
-    // Auto-confirmar assinatura se houver traço no canvas mas ainda não confirmada
-    
     setErrCampo("");
     onSaidaLocal();
   }
@@ -632,12 +609,12 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     if(!ferrOk())return;
     if(!(os.fotosAntes&&os.fotosAntes.length)){setErrCampo("Adicione pelo menos 1 foto ANTES do serviço.");return;}
     if(!(os.fotosDepois&&os.fotosDepois.length)){setErrCampo("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
-    if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Assinatura do cliente obrigatória. Se já foi colhida em saída anterior, avance até a etapa de Assinatura e confirme.");return;}
+    if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Colha a assinatura do cliente antes de concluir.");return;}
     setErrCampo("");
     onEncerrar();
   }
 
-  function handleSaida(){setEtapa(os.assinatura&&os.assinatura.img?5:0);setErrCampo("");onSaida();}
+  function handleSaida(){setEtapa(0);setErrCampo("");onSaida();}
 
   const temFerramentas = (os.ferramentasOS||[]).length>0;
   const chegouNaLoja   = ultimoTrecho&&ultimoTrecho.chegadaLoja&&!trechoAberto;
@@ -654,7 +631,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
             const ab=(d.saidaLoja||d.saida)&&!d.retorno;
             return(
               <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:ab?cor+"11":"#F7F6F4",border:"1px solid "+(ab?cor:"#E0DEDB"),borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
-                <div style={{fontSize:11,color:C.gray,fontWeight:700,minWidth:1320}}>#{i+1}</div>
+                <div style={{fontSize:11,color:C.gray,fontWeight:700,minWidth:22}}>#{i+1}</div>
                 <div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Saída </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.saidaLoja||d.saida)}</span></div>
                 {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
                 {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{dur}h</div>}
@@ -773,7 +750,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* H — Assinatura */}
           {etapa===5&&(
             <div>
-              <PainelAssinatura assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false} autoConfirmar={true}/>
+              <PainelAssinatura assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false}/>
               {errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>}
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(4)}>← Voltar</button>
@@ -838,7 +815,7 @@ function gerarPDF(os){
     +"<div class="+Q+"info-item"+Q+" style="+Q+"grid-column:1/-1"+Q+"><label>Endereço</label><span>"+(os.end||"—")+"</span></div></div>"
     +"<h2>Serviço</h2>"
     +"<div class="+Q+"info-grid"+Q+"><div class="+Q+"info-item"+Q+"><label>Tipo</label><span>"+(os.tipo||"—")+"</span></div>"
-    +"<div class="+Q+"info-item"+Q+"><label>Horas estimadas</label><span>"+(os.hEst||"—")+"min</span></div></div>"
+    +"<div class="+Q+"info-item"+Q+"><label>Horas estimadas</label><span>"+(os.hEst||"—")+"h</span></div></div>"
     +(os.solicit?"<p style="+Q+"margin-top:12px;padding:14px;background:#f8f8f8;border-radius:8px"+Q+"><strong>Descrição:</strong> "+os.solicit+"</p>":"")
     +"<h2>Materiais e valores</h2>"
     +"<table><tr><th>Material</th><th style="+Q+"text-align:center"+Q+">Qtd</th><th style="+Q+"text-align:right"+Q+">Valor</th></tr>"
@@ -886,8 +863,8 @@ function GestaoFerramentas({onBack}){
       <div style={card}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>{editId?"Editar ferramenta":"Nova ferramenta"}</div>
         <div style={row}>
-          <div style={{flex:2,minWidth:9600}}><label style={lbl}>Nome da ferramenta</label><input style={inp} value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Chave Ajustável"/></div>
-          <div style={{flex:2,minWidth:9600}}><label style={lbl}>Descrição (opcional)</label><input style={inp} value={form.descricao} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Marca, tamanho, cor..."/></div>
+          <div style={{flex:2,minWidth:160}}><label style={lbl}>Nome da ferramenta</label><input style={inp} value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Ex: Chave Ajustável"/></div>
+          <div style={{flex:2,minWidth:160}}><label style={lbl}>Descrição (opcional)</label><input style={inp} value={form.descricao} onChange={e=>setForm(p=>({...p,descricao:e.target.value}))} placeholder="Marca, tamanho, cor..."/></div>
         </div>
         {err&&<div style={{color:C.red,fontSize:13,marginBottom:10}}>{err}</div>}
         <div style={{display:"flex",gap:10}}>
@@ -999,7 +976,7 @@ function ChecklistFerramentas({ferramentasOS,onChange,somenteLeitura,labelTitulo
             {!somenteLeitura?(
               <button
                 onClick={()=>toggleDev(f.fid)}
-                style={{...(f.devolvido?btnR:btnG),padding:"8px 14px",fontSize:13,fontWeight:700,minWidth:6600}}>
+                style={{...(f.devolvido?btnR:btnG),padding:"8px 14px",fontSize:13,fontWeight:700,minWidth:110}}>
                 {f.devolvido?"↩ Desfazer":"✓ Recolhida"}
               </button>
             ):(
@@ -1016,6 +993,7 @@ function ChecklistFerramentas({ferramentasOS,onChange,somenteLeitura,labelTitulo
 // LOGIN
 // ════════════════════════════════════════════════════════════════════════
 function Login({onLogin}){
+  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
@@ -1027,7 +1005,7 @@ function Login({onLogin}){
   }
   return(
     <div style={{minHeight:"100vh",background:"#EDECEA",display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{width:"100%",maxWidth:22800}}>
+      <div style={{width:"100%",maxWidth:380}}>
         <div style={{textAlign:"center",marginBottom:32}}>
           <img src={LOGO_B64} alt="Logo" style={{width:130,height:130,objectFit:"contain",margin:"0 auto 12px",display:"block"}}/>
           <div style={{fontSize:13,color:C.gray,letterSpacing:3,textTransform:"uppercase",marginTop:4}}>Gestão de Serviços</div>
@@ -1058,17 +1036,17 @@ function Configuracoes({cfg,onSave}){
     <div><div style={card}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>Parâmetros de precificação</div>
       <div style={row}>
-        <div style={{flex:1,minWidth:9600}}><label style={lbl}>Preço/hora cobrado (R$)</label><input style={inp} type="number" min={0} value={form.precoHora} onChange={e=>s("precoHora",parseFloat(e.target.value)||0)}/></div>
-        <div style={{flex:1,minWidth:9600}}><label style={lbl}>Deslocamento fixo (R$)</label><input style={inp} type="number" min={0} value={form.deslocamento} onChange={e=>s("deslocamento",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:160}}><label style={lbl}>Preço/hora cobrado (R$)</label><input style={inp} type="number" min={0} value={form.precoHora} onChange={e=>s("precoHora",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:160}}><label style={lbl}>Deslocamento fixo (R$)</label><input style={inp} type="number" min={0} value={form.deslocamento} onChange={e=>s("deslocamento",parseFloat(e.target.value)||0)}/></div>
       </div>
       <div style={row}>
-        <div style={{flex:1,minWidth:7800}}><label style={lbl}>Imprevisto (%)</label><input style={inp} type="number" min={0} max={100} value={form.imprevisto} onChange={e=>s("imprevisto",parseFloat(e.target.value)||0)}/></div>
-        <div style={{flex:1,minWidth:7800}}><label style={lbl}>Ferramentas (%)</label><input style={inp} type="number" min={0} max={100} value={form.ferramentas} onChange={e=>s("ferramentas",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:130}}><label style={lbl}>Imprevisto (%)</label><input style={inp} type="number" min={0} max={100} value={form.imprevisto} onChange={e=>s("imprevisto",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:130}}><label style={lbl}>Ferramentas (%)</label><input style={inp} type="number" min={0} max={100} value={form.ferramentas} onChange={e=>s("ferramentas",parseFloat(e.target.value)||0)}/></div>
       </div>
       <div style={row}>
-        <div style={{flex:1,minWidth:7800}}><label style={lbl}>Impostos (%)</label><input style={inp} type="number" min={0} max={100} value={form.impostos} onChange={e=>s("impostos",parseFloat(e.target.value)||0)}/></div>
-        <div style={{flex:1,minWidth:7800}}><label style={lbl}>Comissão técnico (%)</label><input style={inp} type="number" min={0} max={100} value={form.comissao} onChange={e=>s("comissao",parseFloat(e.target.value)||0)}/></div>
-        <div style={{flex:1,minWidth:7800}}><label style={lbl}>Custo MO/hora (R$)</label><input style={inp} type="number" min={0} value={form.custoMOHora} onChange={e=>s("custoMOHora",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:130}}><label style={lbl}>Impostos (%)</label><input style={inp} type="number" min={0} max={100} value={form.impostos} onChange={e=>s("impostos",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:130}}><label style={lbl}>Comissão técnico (%)</label><input style={inp} type="number" min={0} max={100} value={form.comissao} onChange={e=>s("comissao",parseFloat(e.target.value)||0)}/></div>
+        <div style={{flex:1,minWidth:130}}><label style={lbl}>Custo MO/hora (R$)</label><input style={inp} type="number" min={0} value={form.custoMOHora} onChange={e=>s("custoMOHora",parseFloat(e.target.value)||0)}/></div>
       </div>
       <div style={{background:C.surface,borderRadius:10,padding:16,marginTop:8,borderLeft:`3px solid ${C.amber}`}}>
         <div style={{fontSize:10,color:C.gray,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Preview — serviço de 1 hora</div>
@@ -1087,7 +1065,7 @@ function Configuracoes({cfg,onSave}){
     <div style={card}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.green,textTransform:"uppercase",marginBottom:16}}>💬 Feedback via WhatsApp</div>
       <div style={row}>
-        <div style={{flex:1,minWidth:9600}}>
+        <div style={{flex:1,minWidth:160}}>
           <label style={lbl}>Enviar feedback após (minutos)</label>
           <input style={inp} type="number" min={5} max={1440} value={form.tempoFeedbackMin||60}
             onChange={e=>s("tempoFeedbackMin",parseInt(e.target.value)||60)}/>
@@ -1131,12 +1109,12 @@ function GestaoUsuarios({onBack}){
       <div style={card}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>{editId?"Editar usuário":"Novo usuário"}</div>
         <div style={row}>
-          <div style={{flex:1,minWidth:7200}}><label style={lbl}>Nome</label><input style={inp} value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Nome"/></div>
-          <div style={{flex:1,minWidth:7200}}><label style={lbl}>Login</label><input style={inp} value={form.login} onChange={e=>setForm(p=>({...p,login:e.target.value}))} placeholder="login"/></div>
+          <div style={{flex:1,minWidth:120}}><label style={lbl}>Nome</label><input style={inp} value={form.nome} onChange={e=>setForm(p=>({...p,nome:e.target.value}))} placeholder="Nome"/></div>
+          <div style={{flex:1,minWidth:120}}><label style={lbl}>Login</label><input style={inp} value={form.login} onChange={e=>setForm(p=>({...p,login:e.target.value}))} placeholder="login"/></div>
         </div>
         <div style={row}>
-          <div style={{flex:1,minWidth:7200}}><label style={lbl}>Senha</label><input style={inp} value={form.senha} onChange={e=>setForm(p=>({...p,senha:e.target.value}))} placeholder="senha"/></div>
-          <div style={{flex:1,minWidth:7200}}><label style={lbl}>Nível</label>
+          <div style={{flex:1,minWidth:120}}><label style={lbl}>Senha</label><input style={inp} value={form.senha} onChange={e=>setForm(p=>({...p,senha:e.target.value}))} placeholder="senha"/></div>
+          <div style={{flex:1,minWidth:120}}><label style={lbl}>Nível</label>
             <select style={inp} value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))}>
               <option value="tecnico">Técnico</option><option value="gerencia">Gerência</option><option value="admin">Admin</option>
             </select>
@@ -1207,7 +1185,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
   const totMat=os.mats.reduce((a,m)=>a+(parseFloat(m.v)||0),0);
   const hDesl=somaHoras(os.deslocamentos||[]);
   const hGar=somaHoras(os.garantias||[]);
-  const hR=hDesl>0?hDesl:(os.iniciadoEm&&os.concluidoEm?diffHoras(os.iniciadoEm,os.concluidoEm)||1:(parseFloat(os.hEst)||60)/60);
+  const hR=hDesl>0?hDesl:(os.iniciadoEm&&os.concluidoEm?diffHoras(os.iniciadoEm,os.concluidoEm)||1:parseFloat(os.hEst)||1);
   const mc=calcMargem(parseFloat(os.valorTotal)||0,hR,cfg,hGar);
   const mColor=mc.pct>30?C.green:mc.pct>15?C.amber:C.red;
 
@@ -1223,7 +1201,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
   function concluir(){
     if((os.fotosAntes||[]).length===0){setErrFoto("Adicione pelo menos 1 foto ANTES do serviço.");return;}
     if((os.fotosDepois||[]).length===0){setErrFoto("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
-    if(!(os.assinatura&&os.assinatura.img)){setErrFoto("Assinatura do cliente obrigatória. Se já foi colhida, avance até a etapa de Assinatura e confirme.");return;}
+    if(!(os.assinatura&&os.assinatura.img)){setErrFoto("Colha a assinatura do cliente antes de concluir.");return;}
     const ferrPendentes=(os.ferramentasOS||[]).filter(f=>!f.devolvido);
     if(ferrPendentes.length>0){setErrFoto(`Confirme a recolhimento de ${ferrPendentes.length} ferramenta(s) antes de concluir.`);return;}
     setErrFoto("");
@@ -1301,8 +1279,8 @@ function Form({init,usuario,cfg,onSave,onCancel}){
       <div style={card}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>Cliente</div>
         <div style={row}>
-          <div style={{flex:2,minWidth:8400}}><label style={lbl}>Nome</label><input style={inp} value={os.nome} onChange={e=>s("nome",e.target.value)} placeholder="Nome completo" readOnly={!isGer&&jaAprovado}/></div>
-          <div style={{flex:1,minWidth:7200}}><label style={lbl}>Telefone</label><input style={inp} value={os.tel} onChange={e=>s("tel",formatTel(e.target.value))} placeholder="(00) 00000-0000" readOnly={!isGer&&jaAprovado}/></div>
+          <div style={{flex:2,minWidth:140}}><label style={lbl}>Nome</label><input style={inp} value={os.nome} onChange={e=>s("nome",e.target.value)} placeholder="Nome completo" readOnly={!isGer&&jaAprovado}/></div>
+          <div style={{flex:1,minWidth:120}}><label style={lbl}>Telefone</label><input style={inp} value={os.tel} onChange={e=>s("tel",formatTel(e.target.value))} placeholder="(00) 00000-0000" readOnly={!isGer&&jaAprovado}/></div>
         </div>
         <label style={lbl}>Endereço</label>
         <input style={inp} value={os.end} onChange={e=>s("end",e.target.value)} readOnly={!isGer&&jaAprovado}/>
@@ -1311,13 +1289,13 @@ function Form({init,usuario,cfg,onSave,onCancel}){
       <div style={card}>
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>Serviço</div>
         <div style={row}>
-          <div style={{flex:2,minWidth:9600}}>
+          <div style={{flex:2,minWidth:160}}>
             <label style={lbl}>Tipo</label>
             <select style={inp} value={os.tipo} disabled={!isGer&&jaAprovado} onChange={e=>{const sv=SERVICOS.find(x=>x.n===e.target.value);s("tipo",e.target.value);if(sv)s("hEst",sv.h);}}>
               {SERVICOS.map(x=><option key={x.n} value={x.n}>{x.n}</option>)}
             </select>
           </div>
-          <div style={{flex:1,minWidth:6000}}><label style={lbl}>Duração estimada (min)</label><input style={inp} type="number" step="5" min="5" value={os.hEst} readOnly={!isGer&&jaAprovado} onChange={e=>s("hEst",e.target.value)} placeholder="ex: 75"/></div>
+          <div style={{flex:1,minWidth:100}}><label style={lbl}>Horas estimadas</label><input style={inp} type="number" step="0.5" min="0.5" value={os.hEst} readOnly={!isGer&&jaAprovado} onChange={e=>s("hEst",e.target.value)}/></div>
         </div>
         <label style={lbl}>Descrição do serviço</label>
         <textarea style={{...inp,minHeight:70,resize:"vertical",marginBottom:12}} value={os.solicit} readOnly={!isGer&&jaAprovado} onChange={e=>s("solicit",e.target.value)} placeholder="Escreva o que o cliente precisa da forma que ele descreveu"/>
@@ -1333,9 +1311,9 @@ function Form({init,usuario,cfg,onSave,onCancel}){
         {os.mats.length===0&&<div style={{color:C.gray,fontSize:13,textAlign:"center",padding:"12px 0"}}>Nenhum produto</div>}
         {os.mats.map(m=>(
           <div key={m.id} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
-            <input style={{...inp,flex:2,minWidth:7200}} placeholder="Nº Notinha Polar Serviços" value={m.notinha||m.d||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"notinha",e.target.value)}/>
-            <input style={{...inp,flex:1,minWidth:4800}} placeholder="Descrição (opcional)" value={m.d||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"d",e.target.value)}/>
-            <input style={{...inp,flex:1,minWidth:4800}} placeholder="Valor R$" type="number" min={0} value={m.v||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"v",e.target.value)}/>
+            <input style={{...inp,flex:2,minWidth:120}} placeholder="Nº Notinha Polar Serviços" value={m.notinha||m.d||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"notinha",e.target.value)}/>
+            <input style={{...inp,flex:1,minWidth:80}} placeholder="Descrição (opcional)" value={m.d||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"d",e.target.value)}/>
+            <input style={{...inp,flex:1,minWidth:80}} placeholder="Valor R$" type="number" min={0} value={m.v||""} readOnly={!isGer&&jaAprovado} onChange={e=>upMat(m.id,"v",e.target.value)}/>
             <div style={{fontSize:12,color:C.amber,fontFamily:"monospace",whiteSpace:"nowrap"}}>{fmtR(parseFloat(m.v)||0)}</div>
             {(!jaAprovado||isGer)&&<button onClick={()=>rmMat(m.id)} style={{background:"transparent",border:"1px solid "+C.red,color:C.red,borderRadius:6,padding:"6px 10px",cursor:"pointer",fontSize:12}}>✕</button>}
           </div>
@@ -1350,7 +1328,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:16}}>Financeiro</div>
         {isGer?(
           <>
-            <div style={row}><div style={{flex:1,minWidth:8400}}>
+            <div style={row}><div style={{flex:1,minWidth:140}}>
               <label style={lbl}>Valor total ao cliente (R$)</label>
               <input style={{...inp,color:os.valorTotalEditado?C.orange:C.amber,fontWeight:700}} type="number" min={0} value={os.valorTotal}
                 readOnly={jaAprovado&&!["orcamento","devolvida"].includes(os.status)}
@@ -1391,6 +1369,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
 // ════════════════════════════════════════════════════════════════════════
 // ── TELA DE CONCLUSÃO COM FOGOS ──────────────────────────────────────────
 function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
+  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[fogos,setFogos]=useState(true);
@@ -1440,8 +1419,8 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
   },[fogos]);
 
   function confirmar(){
-    const ger=(usuarios||[]).find(u=>u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
-    if(!ger){setErr("Senha incorreta.");return;}
+    const ger=usuarios.find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErr("Login ou senha de gerente incorretos.");return;}
     onConfirmar(ger);
   }
 
@@ -1507,8 +1486,10 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
         <div style={{background:"#1A1A1A",borderRadius:14,padding:20,border:"1px solid #2A2A2A"}}>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#AAAAAA",textTransform:"uppercase",marginBottom:16}}>Aprovação do gerente</div>
           <div style={{fontSize:13,color:"#888",marginBottom:16}}>Um gerente deve confirmar a conclusão do serviço.</div>
-          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha do gerente</label>
-          <input type="password" autoComplete="new-password" style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"12px",color:"#FFFFFF",fontSize:22,letterSpacing:6,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:14}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&confirmar()}/>
+          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Login</label>
+          <input style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"10px 12px",color:"#FFFFFF",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:10}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
+          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha</label>
+          <input style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"10px 12px",color:"#FFFFFF",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:14}} type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&confirmar()}/>
           {err&&<div style={{color:"#FF6B6B",fontSize:13,marginBottom:12,fontWeight:600}}>⚠ {err}</div>}
           <button style={{width:"100%",background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:10,padding:"14px",fontWeight:700,fontSize:16,cursor:"pointer"}} onClick={confirmar}>
             ✅ Confirmar conclusão
@@ -1539,6 +1520,7 @@ function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
 
   const[saidaVal,setSaidaVal]=useState(toDatetimeLocal(trecho.saidaLoja||trecho.saida));
   const[retornoVal,setRetornoVal]=useState(toDatetimeLocal(trecho.chegadaLoja||trecho.retorno));
+  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[confirmandoExclusao,setConfirmandoExclusao]=useState(false);
@@ -1613,18 +1595,21 @@ function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
 // ── MODAL: Reatribuir OS a outro técnico ─────────────────────────────────
 // ── MODAL: Senha do gerente para liberar saída/retorno da loja ──────────
 function ModalSenhaGerente({onConfirmar,onFechar,err}){
+  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   return(
     <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onFechar}>
-      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:340,width:"100%"}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:380,width:"100%"}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:16,fontWeight:700,marginBottom:4,color:"#1A1A1A"}}>🔐 Autorização do gerente</div>
-        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Digite a senha do gerente para liberar.</div>
-        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha do gerente</label>
-        <input type="password" autoComplete="new-password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"12px",fontSize:18,letterSpacing:4,textAlign:"center",marginBottom:16,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&onConfirmar(senha)}/>
-        {err&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:14,fontWeight:600,textAlign:"center"}}>⚠ {err}</div>}
+        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Um gerente precisa confirmar esta saída/retorno da loja.</div>
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Login</label>
+        <input style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:14,boxSizing:"border-box"}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha</label>
+        <input type="password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:16,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&onConfirmar(login,senha)}/>
+        {err&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:14,fontWeight:600}}>⚠ {err}</div>}
         <div style={{display:"flex",gap:10}}>
           <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={onFechar}>Cancelar</button>
-          <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={()=>onConfirmar(senha)}>Confirmar</button>
+          <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={()=>onConfirmar(login,senha)}>Confirmar</button>
         </div>
       </div>
     </div>
@@ -1683,9 +1668,9 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     setConfirmacaoPendente(()=>onSucesso);
   }
 
-  function confirmarSenhaGerente(senha){
-    const ger=(usuarios||[]).find(u=>u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
-    if(!ger){setErrSenha("Senha de gerente incorreta.");return;}
+  function confirmarSenhaGerente(login,senha){
+    const ger=(usuarios||[]).find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErrSenha("Login ou senha de gerente incorretos.");return;}
     setErrSenha("");
     const fn=confirmacaoPendente;
     setConfirmacaoPendente(null);
@@ -1702,16 +1687,8 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     verificarSenhaGerente((ger)=>{
       const agora=new Date().toISOString();
       // Zerar recolhimento — técnico ainda não recolheu ao sair novamente
-      // MANTER assinatura e fotos — já podem ter sido coletadas em saída anterior
       const ferrZeradas=(os.ferramentasOS||[]).map(f=>({...f,devolvido:false,devolvidoEm:null}));
-      onUpdate({...os,
-        deslocamentos:[...desl,{id:Date.now(),saidaLoja:agora,chegadaLocal:null,saidaLocal:null,chegadaLoja:null,retorno:null,liberadoPorSaida:ger.nome}],
-        ferramentasOS:ferrZeradas,
-        etapaExecucao:0,
-        // assinatura, fotosAntes, fotosDurante, fotosDepois, relatorio
-        // NÃO são zerados — permanecem válidos de saídas anteriores
-        savedAt:agora
-      });
+      onUpdate({...os,deslocamentos:[...desl,{id:Date.now(),saidaLoja:agora,chegadaLocal:null,saidaLocal:null,chegadaLoja:null,retorno:null,liberadoPorSaida:ger.nome}],ferramentasOS:ferrZeradas,etapaExecucao:0,savedAt:agora});
     });
   }
 
@@ -1870,7 +1847,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     {confirmacaoPendente&&(
       <ModalSenhaGerente
         err={errSenha}
-        onConfirmar={(s)=>confirmarSenhaGerente(s)}
+        onConfirmar={confirmarSenhaGerente}
         onFechar={()=>{setConfirmacaoPendente(null);setErrSenha("");}}
       />
     )}
@@ -1909,7 +1886,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
         {/* serviço */}
         <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:(os.solicit||os.obsOrcamento||os.relatorio||os.diag)?14:0}}>
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tipo</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.tipo}</div></div>
-          <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Estimado</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.hEst}min</div></div>
+          <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Estimado</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.hEst}h</div></div>
           {hDesl>0&&<div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tempo real</div><div style={{fontWeight:600,color:"#CC1F1F"}}>{hDesl}h</div></div>}
           {hGar>0&&<div><div style={{fontSize:10,color:C.teal,textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Garantia</div><div style={{fontWeight:600,color:C.teal}}>{hGar}h</div></div>}
         </div>
@@ -2160,7 +2137,7 @@ function Historico({lista,usuario,onSelect}){
                 style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 12px",borderBottom:idx<fil.length-1?`1px solid ${C.navyLight}`:"none",cursor:"pointer",gap:12,flexWrap:"wrap"}}
                 onMouseEnter={e=>e.currentTarget.style.background='#F5F3F0'}
                 onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                <div style={{flex:1,minWidth:7200}}>
+                <div style={{flex:1,minWidth:120}}>
                   <div style={{fontFamily:"monospace",fontSize:12,color:C.amber,marginBottom:2}}>{os.numero}</div>
                   <div style={{fontWeight:600,fontSize:14}}>{os.nome||"—"}</div>
                   <div style={{fontSize:12,color:C.gray}}>{os.tipo}{temGar&&<span style={{marginLeft:8,color:C.teal}}>⚙ garantia</span>}</div>
@@ -2349,17 +2326,17 @@ function Relatorios({lista,usuarios}){
         <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.green,textTransform:"uppercase",marginBottom:16}}>📊 Exportar para Excel</div>
 
         <div style={row}>
-          <div style={{flex:1,minWidth:8400}}>
+          <div style={{flex:1,minWidth:140}}>
             <label style={lbl}>Status</label>
             <select style={inp} value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)}>
               {STATUS_OPTS.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
             </select>
           </div>
-          <div style={{flex:1,minWidth:7800}}>
+          <div style={{flex:1,minWidth:130}}>
             <label style={lbl}>Data inicial</label>
             <input style={inp} type="date" value={dataIni} onChange={e=>setDataIni(e.target.value)}/>
           </div>
-          <div style={{flex:1,minWidth:7800}}>
+          <div style={{flex:1,minWidth:130}}>
             <label style={lbl}>Data final</label>
             <input style={inp} type="date" value={dataFim} onChange={e=>setDataFim(e.target.value)}/>
           </div>
@@ -2409,7 +2386,7 @@ export default function App(){
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
   useEffect(()=>{
     storageGet("polar_os").then(d=>{if(d)setLista(d);});
-    // Sessão não é persistida — login obrigatório a cada acesso
+    // Sessão não persistida — login obrigatório a cada acesso
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
     storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
@@ -2432,7 +2409,7 @@ export default function App(){
   }
   const roleLabel={admin:"Admin",gerencia:"Gerência",tecnico:"Técnico"};
   return(
-    <div style={{minHeight:"100vh",background:"#F0F0EE",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#1A1A1A",overflowX:"hidden",maxWidth:"100vw"}}>
+    <div style={{minHeight:"100vh",background:"#F0F0EE",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#1A1A1A",overflowX:"hidden"}}>
       <div style={{background:C.navyMid,borderBottom:"3px solid "+C.amber,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO_B64} alt="Logo" style={{width:40,height:40,objectFit:"contain",flexShrink:0,borderRadius:6}}/>
