@@ -464,7 +464,7 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
 
         {/* canvas compacto no card */}
         <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:C.surface,marginBottom:12,touchAction:"none",height:160}}>
-          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||jaAssinado} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
+          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!autoConfirmar)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
               onTracoFinalizado={autoConfirmar?cv=>{
                 if(!cv)return;
                 const img=cv.toDataURL("image/png");
@@ -1016,7 +1016,6 @@ function ChecklistFerramentas({ferramentasOS,onChange,somenteLeitura,labelTitulo
 // LOGIN
 // ════════════════════════════════════════════════════════════════════════
 function Login({onLogin}){
-  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
@@ -1392,7 +1391,6 @@ function Form({init,usuario,cfg,onSave,onCancel}){
 // ════════════════════════════════════════════════════════════════════════
 // ── TELA DE CONCLUSÃO COM FOGOS ──────────────────────────────────────────
 function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
-  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[fogos,setFogos]=useState(true);
@@ -1442,8 +1440,8 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
   },[fogos]);
 
   function confirmar(){
-    const ger=usuarios.find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
-    if(!ger){setErr("Login ou senha de gerente incorretos.");return;}
+    const ger=(usuarios||[]).find(u=>u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErr("Senha incorreta.");return;}
     onConfirmar(ger);
   }
 
@@ -1509,10 +1507,8 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
         <div style={{background:"#1A1A1A",borderRadius:14,padding:20,border:"1px solid #2A2A2A"}}>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#AAAAAA",textTransform:"uppercase",marginBottom:16}}>Aprovação do gerente</div>
           <div style={{fontSize:13,color:"#888",marginBottom:16}}>Um gerente deve confirmar a conclusão do serviço.</div>
-          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Login</label>
-          <input style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"10px 12px",color:"#FFFFFF",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:10}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
-          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha</label>
-          <input style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"10px 12px",color:"#FFFFFF",fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:14}} type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&confirmar()}/>
+          <label style={{fontSize:11,color:"#888",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha do gerente</label>
+          <input type="password" autoComplete="new-password" style={{width:"100%",background:"#2A2A2A",border:"1px solid #3A3A3A",borderRadius:8,padding:"12px",color:"#FFFFFF",fontSize:22,letterSpacing:6,textAlign:"center",outline:"none",boxSizing:"border-box",marginBottom:14}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&confirmar()}/>
           {err&&<div style={{color:"#FF6B6B",fontSize:13,marginBottom:12,fontWeight:600}}>⚠ {err}</div>}
           <button style={{width:"100%",background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:10,padding:"14px",fontWeight:700,fontSize:16,cursor:"pointer"}} onClick={confirmar}>
             ✅ Confirmar conclusão
@@ -1543,7 +1539,6 @@ function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
 
   const[saidaVal,setSaidaVal]=useState(toDatetimeLocal(trecho.saidaLoja||trecho.saida));
   const[retornoVal,setRetornoVal]=useState(toDatetimeLocal(trecho.chegadaLoja||trecho.retorno));
-  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   const[err,setErr]=useState("");
   const[confirmandoExclusao,setConfirmandoExclusao]=useState(false);
@@ -2437,7 +2432,7 @@ export default function App(){
   }
   const roleLabel={admin:"Admin",gerencia:"Gerência",tecnico:"Técnico"};
   return(
-    <div style={{minHeight:"100vh",background:"#F0F0EE",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#1A1A1A"}}>
+    <div style={{minHeight:"100vh",background:"#F0F0EE",fontFamily:"'DM Sans','Segoe UI',sans-serif",color:"#1A1A1A",overflowX:"hidden",maxWidth:"100vw"}}>
       <div style={{background:C.navyMid,borderBottom:"3px solid "+C.amber,padding:"0 16px",display:"flex",alignItems:"center",justifyContent:"space-between",height:60,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <img src={LOGO_B64} alt="Logo" style={{width:40,height:40,objectFit:"contain",flexShrink:0,borderRadius:6}}/>
