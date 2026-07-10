@@ -1592,21 +1592,18 @@ function ModalEditarHorario({trecho,usuarios,onConfirmar,onFechar,onExcluir}){
 // ── MODAL: Reatribuir OS a outro técnico ─────────────────────────────────
 // ── MODAL: Senha do gerente para liberar saída/retorno da loja ──────────
 function ModalSenhaGerente({onConfirmar,onFechar,err}){
-  const[login,setLogin]=useState("");
   const[senha,setSenha]=useState("");
   return(
     <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onFechar}>
-      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:380,width:"100%"}} onClick={e=>e.stopPropagation()}>
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:340,width:"100%"}} onClick={e=>e.stopPropagation()}>
         <div style={{fontSize:16,fontWeight:700,marginBottom:4,color:"#1A1A1A"}}>🔐 Autorização do gerente</div>
-        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Um gerente precisa confirmar esta saída/retorno da loja.</div>
-        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Login</label>
-        <input style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:14,boxSizing:"border-box"}} value={login} onChange={e=>setLogin(e.target.value)} placeholder="login do gerente" autoComplete="off"/>
-        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha</label>
-        <input type="password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:16,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&onConfirmar(login,senha)}/>
+        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Digite a senha do gerente para liberar.</div>
+        <label style={{fontSize:11,color:"#555",fontWeight:700,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:6}}>Senha do gerente</label>
+        <input type="password" autoComplete="new-password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"12px",fontSize:22,letterSpacing:6,textAlign:"center",marginBottom:16,boxSizing:"border-box"}} value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&onConfirmar(senha)}/>
         {err&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:14,fontWeight:600}}>⚠ {err}</div>}
         <div style={{display:"flex",gap:10}}>
           <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={onFechar}>Cancelar</button>
-          <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={()=>onConfirmar(login,senha)}>Confirmar</button>
+          <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}} onClick={()=>onConfirmar(senha)}>Confirmar</button>
         </div>
       </div>
     </div>
@@ -1665,9 +1662,9 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
     setConfirmacaoPendente(()=>onSucesso);
   }
 
-  function confirmarSenhaGerente(login,senha){
-    const ger=(usuarios||[]).find(u=>u.login.trim().toLowerCase()===login.trim().toLowerCase()&&u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
-    if(!ger){setErrSenha("Login ou senha de gerente incorretos.");return;}
+  function confirmarSenhaGerente(senha){
+    const ger=(usuarios||[]).find(u=>u.senha===senha&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setErrSenha("Senha incorreta.");return;}
     setErrSenha("");
     const fn=confirmacaoPendente;
     setConfirmacaoPendente(null);
