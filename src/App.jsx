@@ -19,11 +19,11 @@ const C={
 };
 
 const SERVICOS = [
-  {n:"Troca de resistência",h:1},{n:"Instalação de chuveiro",h:1.5},
-  {n:"Troca de torneira",h:1},{n:"Instalação de vaso sanitário",h:1.5},
-  {n:"Montagem de armário",h:2.5},{n:"Instalação de aquecedor",h:2},
-  {n:"Gás – instalação de fogão",h:1.5},{n:"Gás – ramal/revisão",h:3},
-  {n:"Serviço personalizado",h:1}
+  {n:"Troca de resistência",h:60},{n:"Instalação de chuveiro",h:90},
+  {n:"Troca de torneira",h:60},{n:"Instalação de vaso sanitário",h:90},
+  {n:"Montagem de armário",h:150},{n:"Instalação de aquecedor",h:120},
+  {n:"Gás – instalação de fogão",h:90},{n:"Gás – ramal/revisão",h:180},
+  {n:"Serviço personalizado",h:60}
 ];
 
 const USUARIOS_PADRAO = [
@@ -92,7 +92,7 @@ function formatTel(v) {
 }
 
 function calcValorServico(hEst,cfg,mats=[]){
-  const h=parseFloat(hEst)||0;
+  const h=(parseFloat(hEst)||0)/60; // minutos -> horas
   const totMat=mats.reduce((a,m)=>a+(parseFloat(m.v)||0),0);
   const mo=h*cfg.precoHora;
   const variavel=mo*((cfg.imprevisto+cfg.ferramentas)/100);
@@ -815,7 +815,7 @@ function gerarPDF(os){
     +"<div class="+Q+"info-item"+Q+" style="+Q+"grid-column:1/-1"+Q+"><label>Endereço</label><span>"+(os.end||"—")+"</span></div></div>"
     +"<h2>Serviço</h2>"
     +"<div class="+Q+"info-grid"+Q+"><div class="+Q+"info-item"+Q+"><label>Tipo</label><span>"+(os.tipo||"—")+"</span></div>"
-    +"<div class="+Q+"info-item"+Q+"><label>Horas estimadas</label><span>"+(os.hEst||"—")+"h</span></div></div>"
+    +"<div class="+Q+"info-item"+Q+"><label>Minutos estimados</label><span>"+(os.hEst||"—")+"min</span></div></div>"
     +(os.solicit?"<p style="+Q+"margin-top:12px;padding:14px;background:#f8f8f8;border-radius:8px"+Q+"><strong>Descrição:</strong> "+os.solicit+"</p>":"")
     +"<h2>Materiais e valores</h2>"
     +"<table><tr><th>Material</th><th style="+Q+"text-align:center"+Q+">Qtd</th><th style="+Q+"text-align:right"+Q+">Valor</th></tr>"
@@ -1185,7 +1185,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
   const totMat=os.mats.reduce((a,m)=>a+(parseFloat(m.v)||0),0);
   const hDesl=somaHoras(os.deslocamentos||[]);
   const hGar=somaHoras(os.garantias||[]);
-  const hR=hDesl>0?hDesl:(os.iniciadoEm&&os.concluidoEm?diffHoras(os.iniciadoEm,os.concluidoEm)||1:parseFloat(os.hEst)||1);
+  const hR=hDesl>0?hDesl:(os.iniciadoEm&&os.concluidoEm?diffHoras(os.iniciadoEm,os.concluidoEm)||1:(parseFloat(os.hEst)||60)/60);
   const mc=calcMargem(parseFloat(os.valorTotal)||0,hR,cfg,hGar);
   const mColor=mc.pct>30?C.green:mc.pct>15?C.amber:C.red;
 
@@ -1295,7 +1295,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
               {SERVICOS.map(x=><option key={x.n} value={x.n}>{x.n}</option>)}
             </select>
           </div>
-          <div style={{flex:1,minWidth:100}}><label style={lbl}>Horas estimadas</label><input style={inp} type="number" step="0.5" min="0.5" value={os.hEst} readOnly={!isGer&&jaAprovado} onChange={e=>s("hEst",e.target.value)}/></div>
+          <div style={{flex:1,minWidth:100}}><label style={lbl}>Minutos estimados</label><input style={inp} type="number" step="5" min="5" value={os.hEst} readOnly={!isGer&&jaAprovado} onChange={e=>s("hEst",e.target.value)}/></div>
         </div>
         <label style={lbl}>Descrição do serviço</label>
         <textarea style={{...inp,minHeight:70,resize:"vertical",marginBottom:12}} value={os.solicit} readOnly={!isGer&&jaAprovado} onChange={e=>s("solicit",e.target.value)} placeholder="Escreva o que o cliente precisa da forma que ele descreveu"/>
@@ -1880,7 +1880,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
         {/* serviço */}
         <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:(os.solicit||os.obsOrcamento||os.relatorio||os.diag)?14:0}}>
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tipo</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.tipo}</div></div>
-          <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Estimado</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.hEst}h</div></div>
+          <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Estimado</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.hEst}min</div></div>
           {hDesl>0&&<div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tempo real</div><div style={{fontWeight:600,color:"#CC1F1F"}}>{hDesl}h</div></div>}
           {hGar>0&&<div><div style={{fontSize:10,color:C.teal,textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Garantia</div><div style={{fontWeight:600,color:C.teal}}>{hGar}h</div></div>}
         </div>
