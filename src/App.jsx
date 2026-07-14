@@ -1678,6 +1678,7 @@ function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
 
 function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
   const isGer=usuario.role==="gerencia"||usuario.role==="admin";
+  const isAdmin=usuario.role==="admin";
   const totMat=(os.mats||[]).reduce((a,m)=>a+(parseFloat(m.q)||0)*(parseFloat(m.v)||0),0)||0;
   const sc=STATUS_COLOR[os.status]||C.gray;
   const desl=os.deslocamentos||[];
