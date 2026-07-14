@@ -694,7 +694,13 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     onEncerrar();
   }
 
-  function handleSaida(){setEtapa(os.assinatura&&os.assinatura.img?5:0);setErrCampo("");onSaida();}
+  function handleSaida(){
+    const temFotos=os.fotosAntes&&os.fotosAntes.length>0;
+    const temAssinatura=os.assinatura&&os.assinatura.img;
+    setEtapa(temAssinatura?5:temFotos?1:0);
+    setErrCampo("");
+    onSaida();
+  }
 
   const temFerramentas = (os.ferramentasOS||[]).length>0;
   const chegouNaLoja   = ultimoTrecho&&ultimoTrecho.chegadaLoja&&!trechoAberto;
@@ -741,9 +747,12 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
 
       {/* ── A: Saí da loja ── */}
       {emAndamento&&!trechoAberto&&!chegouNaLoja&&(
-        <button style={{...btnP,width:"100%",padding:"15px",fontSize:16,fontWeight:700}} onClick={handleSaida}>
-          🛒 Saí da loja
-        </button>
+        <div>
+          <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
+          <button style={{...btnP,width:"100%",padding:"15px",fontSize:16,fontWeight:700,marginTop:8}} onClick={handleSaida}>
+            🛒 Saí da loja
+          </button>
+        </div>
       )}
 
       {/* ── B: Cheguei no local ── */}
@@ -757,7 +766,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
       )}
 
       {/* ── C-G: Execução ── */}
-      {execucaoInline&&trechoAberto&&trechoAberto.chegadaLocal&&(
+      {execucaoInline&&emAndamento&&(
         <div style={{borderTop:"2px dashed "+cor+"55",paddingTop:16,marginTop:8}}>
           {/* Barra progresso */}
           <div style={{display:"flex",gap:3,marginBottom:16}}>
@@ -770,6 +779,9 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {etapa===0&&(
             <div>
               <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
+              {(os.fotosAntes||[]).length>0&&(
+                <div style={{fontSize:12,color:C.steel,marginBottom:8}}>✓ {os.fotosAntes.length} foto(s) já adicionada(s) antes de sair da loja.</div>
+              )}
               <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700}} onClick={()=>setEtapa(1)}>Avançar →</button>
             </div>
           )}
@@ -834,15 +846,18 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
               {errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>}
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(4)}>← Voltar</button>
-                {/* Saí do local — valida ferramentas */}
-                {!trechoAberto.saidaLocal&&(
+                {/* Saí do local — só aparece se estiver em campo */}
+                {trechoAberto&&trechoAberto.chegadaLocal&&!trechoAberto.saidaLocal&&(
                   <button style={{...btnP,flex:2,padding:"13px",fontWeight:700,background:"#E65100"}} onClick={handleSaidaLocal}>
                     🚗 Saí do local
                   </button>
                 )}
+                {!trechoAberto&&(
+                  <div style={{flex:2,padding:"13px",fontSize:12,color:C.gray,textAlign:"center"}}>Registre sua saída da loja para ativar o botão de retorno</div>
+                )}
               </div>
               {/* A caminho da loja */}
-              {trechoAberto.saidaLocal&&!trechoAberto.chegadaLoja&&(
+              {trechoAberto&&trechoAberto.saidaLocal&&!trechoAberto.chegadaLoja&&(
                 <div style={{marginTop:12,background:"#FFF8E1",borderRadius:10,padding:14,border:"1px solid #FFE082"}}>
                   <div style={{fontSize:13,color:"#E65100",fontWeight:600,marginBottom:10}}>🚗 A caminho da loja...</div>
                   <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700}} onClick={onChegadaLoja}>
