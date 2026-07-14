@@ -2250,10 +2250,10 @@ function Historico({lista,usuario,onSelect}){
   });
   const STATUS_BG={
     orcamento:{bg:C.amber+"33",color:C.amber,label:"Orçamento",rowBg:"transparent"},
-    aprovado_gerente:{bg:C.green+"33",color:C.green,label:"Aprovado",rowBg:"#E8F5E9"},
+    aprovado_gerente:{bg:C.green+"33",color:C.green,label:"Aprovado",rowBg:"#C8E6C9"},
     em_andamento:{bg:C.steel+"33",color:C.steel,label:"Em andamento",rowBg:"#E3F2FD"},
     aguardando_conclusao:{bg:C.red+"33",color:C.red,label:"Aguard. aprovação",rowBg:"transparent"},
-    concluida:{bg:C.green+"33",color:C.green,label:"Concluída",rowBg:"#E8F5E9"},
+    concluida:{bg:C.green+"33",color:C.green,label:"Concluída",rowBg:"#C8E6C9"},
     cancelada:{bg:C.red+"22",color:C.red,label:"Cancelada",rowBg:"#FFEBEE"},
     devolvida:{bg:C.red+"22",color:C.red,label:"Devolvida",rowBg:"transparent"},
     em_garantia:{bg:C.teal+"33",color:C.teal,label:"Em garantia",rowBg:"transparent"},
