@@ -142,13 +142,24 @@ async function storageGet(k){
   }
 }
 async function storageSet(k,v){
-  try{
-    const db=getDb();
-    if(!db){localStorage.setItem("polar_"+k,JSON.stringify(v));return;}
-    await db.collection("polar_dados").doc(k).set({valor:v,atualizadoEm:new Date().toISOString()});
-    localStorage.setItem("polar_"+k,JSON.stringify(v));
-  }catch(e){
+  const db=getDb();
+  if(!db){
+    // Sem Firebase — salva só local (modo offline)
     try{localStorage.setItem("polar_"+k,JSON.stringify(v));}catch(e2){}
+    return false;
+  }
+  // Tenta Firebase com timeout de 10s
+  try{
+    await Promise.race([
+      db.collection("polar_dados").doc(k).set({valor:v,atualizadoEm:new Date().toISOString()}),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),10000))
+    ]);
+    localStorage.setItem("polar_"+k,JSON.stringify(v)); // cache local
+    return true;
+  }catch(e){
+    console.error("Firebase storageSet falhou:",k,e.message);
+    try{localStorage.setItem("polar_"+k,JSON.stringify(v));}catch(e2){}
+    return false; // retorna false para indicar falha
   }
 }
 
@@ -1149,8 +1160,9 @@ function GestaoUsuarios({onBack}){
 // ════════════════════════════════════════════════════════════════════════
 // FORM OS
 // ════════════════════════════════════════════════════════════════════════
-function Form({init,usuario,cfg,onSave,onCancel}){
+function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
   const isGer=usuario.role==="gerencia"||usuario.role==="admin";
+  const isAdmin=usuario.role==="admin";
   const jaAprovado=init&&!["orcamento","devolvida"].includes(init.status);
   const emExecucao=(init&&init.status)==="em_andamento";
   const podeEditar=isGer||isHoje((init&&init.criadoEm))||!init;
@@ -1162,7 +1174,7 @@ function Form({init,usuario,cfg,onSave,onCancel}){
       nome:"",tel:"",end:"",tipo:SERVICOS[0].n,hEst:SERVICOS[0].h,
       solicit:"",obsOrcamento:"",garantia:"90 dias (mão de obra)",
       valorTotal:0,valorTotalEditado:false,
-      mats:[],criadoPor:usuario.id,criadoEm:new Date().toISOString(),
+      mats:[],criadoPor:usuario.id,criadoEm:new Date().toISOString(),tecnicosAdicionais:[],
       diag:"",exec:"",obsExec:"",hReal:"",
       iniciadoEm:null,concluidoEm:null,
       deslocamentos:[],
@@ -1353,6 +1365,32 @@ function Form({init,usuario,cfg,onSave,onCancel}){
         )}
       </div>
 
+      {/* Técnico adicional — aparece para qualquer usuário na criação */}
+      {(()=>{
+        const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico"&&u.id!==usuario.id);
+        if(tecnicos.length===0)return null;
+        return(
+          <div style={card}>
+            <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.amber,textTransform:"uppercase",marginBottom:12}}>Técnico adicional (opcional)</div>
+            <div style={{fontSize:12,color:C.gray,marginBottom:12}}>Se houver um segundo técnico neste serviço, selecione abaixo. A O.S. aparecerá na conta de ambos.</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <label style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,border:"1.5px solid "+((!os.tecnicosAdicionais||os.tecnicosAdicionais.length===0)?"#CC1F1F":"#E0DEDB"),background:(!os.tecnicosAdicionais||os.tecnicosAdicionais.length===0)?"#FFF5F5":"#FAFAFA",cursor:"pointer"}}>
+                <input type="radio" checked={!os.tecnicosAdicionais||os.tecnicosAdicionais.length===0} onChange={()=>s("tecnicosAdicionais",[])} style={{accentColor:"#CC1F1F"}}/>
+                <span style={{fontWeight:600,fontSize:14}}>Nenhum</span>
+              </label>
+              {tecnicos.map(t=>{
+                const sel=(os.tecnicosAdicionais||[]).includes(t.id);
+                return(
+                  <label key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,border:"1.5px solid "+(sel?"#2E7D32":"#E0DEDB"),background:sel?"#E8F5E9":"#FAFAFA",cursor:"pointer"}}>
+                    <input type="checkbox" checked={sel} onChange={()=>{const cur2=os.tecnicosAdicionais||[];s("tecnicosAdicionais",sel?cur2.filter(x=>x!==t.id):[...cur2,t.id]);}} style={{accentColor:"#2E7D32",width:16,height:16}}/>
+                    <span style={{fontWeight:600,fontSize:14}}>{t.nome}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       <div style={card}><label style={lbl}>Garantia</label><input style={inp} value={os.garantia} onChange={e=>s("garantia",e.target.value)} readOnly={!isGer}/></div>
 
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap",paddingBottom:32}}>
@@ -1638,7 +1676,7 @@ function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
   );
 }
 
-function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
+function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
   const isGer=usuario.role==="gerencia"||usuario.role==="admin";
   const totMat=(os.mats||[]).reduce((a,m)=>a+(parseFloat(m.q)||0)*(parseFloat(m.v)||0),0)||0;
   const sc=STATUS_COLOR[os.status]||C.gray;
@@ -1846,8 +1884,8 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
       />
     )}
     <div>
-      {/* header + serviço — card único com fundo escuro */}
-      <div style={{background:"#2C2C2C",borderRadius:14,padding:20,marginBottom:16,border:"1px solid #3A3A3A",boxShadow:"0 2px 8px rgba(0,0,0,0.18)"}}>
+      {/* header + serviço — card único com fundo escuro/verde */}
+      <div style={{background:os.status==="concluida"?"#1B5E20":"#2C2C2C",borderRadius:14,padding:20,marginBottom:16,border:"1px solid "+(os.status==="concluida"?"#2E7D32":"#3A3A3A"),boxShadow:"0 2px 8px rgba(0,0,0,0.18)"}}>
         {/* topo: número + status */}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:16}}>
           <div>
@@ -1864,9 +1902,33 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Local</div><div style={{fontSize:13,color:"#FFFFFF"}}>{os.end||"—"}</div></div>
         </div>
 
+        {/* técnicos envolvidos — visível para todos */}
+        {(()=>{
+          const criador=(usuarios||[]).find(u=>u.id===os.criadoPor);
+          const atribuido=os.tecnicoAtribuidoNome;
+          const adicionais=(os.tecnicosAdicionais||[]).map(id=>{const u=(usuarios||[]).find(x=>x.id===id);return u?u.nome:null;}).filter(Boolean);
+          const nomes=[];
+          if(criador&&criador.role==="tecnico")nomes.push(criador.nome);
+          if(atribuido&&!nomes.includes(atribuido))nomes.push(atribuido);
+          adicionais.forEach(n=>{if(!nomes.includes(n))nomes.push(n);});
+          if(nomes.length===0)return null;
+          return(
+            <div style={{paddingBottom:14,borderBottom:"1px solid "+(os.status==="concluida"?"#2E7D32":"#3A3A3A"),marginBottom:14}}>
+              <div style={{fontSize:10,color:"#AAAAAA",textTransform:"uppercase",marginBottom:6,letterSpacing:1}}>
+                {nomes.length===1?"Técnico":"Técnicos"}
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {nomes.map((n,i)=>(
+                  <span key={i} style={{background:"rgba(255,255,255,0.12)",color:"#FFFFFF",borderRadius:20,padding:"4px 12px",fontSize:13,fontWeight:600}}>👷 {n}</span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* técnico atribuído — gerência pode reatribuir */}
         {isGer&&(
-          <div style={{paddingBottom:14,borderBottom:"1px solid #3A3A3A",marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{paddingBottom:14,borderBottom:"1px solid "+(os.status==="concluida"?"#2E7D32":"#3A3A3A"),marginBottom:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <div>
               <div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Técnico responsável</div>
               <div style={{fontWeight:600,color:"#FFFFFF"}}>{os.tecnicoAtribuidoNome||"—"}</div>
@@ -2075,6 +2137,11 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
         {(isGer||(isHoje(os.criadoEm)&&!["concluida","cancelada"].includes(os.status)))&&(
           <button style={btnP} onClick={onEdit}>✏ Editar OS</button>
         )}
+        {isAdmin&&onDelete&&(
+          <button style={btnR} onClick={()=>{if(window.confirm("Excluir a OS "+os.numero+"? Esta ação não pode ser desfeita."))onDelete(os.numero);}}>
+            🗑 Excluir OS
+          </button>
+        )}
       </div>
     </div>
     </>
@@ -2087,20 +2154,26 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios}){
 function Historico({lista,usuario,onSelect}){
   const[q,setQ]=useState("");const[sf,setSf]=useState("todos");
   const isGer=usuario.role==="gerencia"||usuario.role==="admin";
-  const base=isGer?lista:lista.filter(o=>o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id);
+  const base=isGer?lista:lista.filter(o=>o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id||(o.tecnicosAdicionais||[]).includes(usuario.id));
+  const ORDEM_STATUS={em_andamento:0,aprovado_gerente:1,orcamento:2,em_garantia:3,concluida:4,devolvida:5,cancelada:6};
   const fil=base.filter(o=>{
     const t=(o.numero+(o.nome||"")+(o.tipo||"")).toLowerCase();
     return t.includes(q.toLowerCase())&&(sf==="todos"||o.status===sf);
+  }).sort((a,b)=>{
+    const oa=ORDEM_STATUS[a.status]??9;
+    const ob=ORDEM_STATUS[b.status]??9;
+    if(oa!==ob)return oa-ob;
+    return (b.data||"").localeCompare(a.data||"");
   });
   const STATUS_BG={
-    orcamento:{bg:C.amber+"33",color:C.amber,label:"Orçamento"},
-    aprovado_gerente:{bg:C.green+"33",color:C.green,label:"Aprovado"},
-    em_andamento:{bg:C.steel+"33",color:C.steel,label:"Em andamento"},
-    aguardando_conclusao:{bg:C.red+"33",color:C.red,label:"Aguard. aprovação"},
-    concluida:{bg:C.green+"33",color:C.green,label:"Concluída"},
-    cancelada:{bg:C.red+"22",color:C.red,label:"Cancelada"},
-    devolvida:{bg:C.red+"22",color:C.red,label:"Devolvida"},
-    em_garantia:{bg:C.teal+"33",color:C.teal,label:"Em garantia"},
+    orcamento:{bg:C.amber+"33",color:C.amber,label:"Orçamento",rowBg:"transparent"},
+    aprovado_gerente:{bg:C.green+"33",color:C.green,label:"Aprovado",rowBg:"#E8F5E9"},
+    em_andamento:{bg:C.steel+"33",color:C.steel,label:"Em andamento",rowBg:"#E3F2FD"},
+    aguardando_conclusao:{bg:C.red+"33",color:C.red,label:"Aguard. aprovação",rowBg:"transparent"},
+    concluida:{bg:C.green+"33",color:C.green,label:"Concluída",rowBg:"transparent"},
+    cancelada:{bg:C.red+"22",color:C.red,label:"Cancelada",rowBg:"#FFEBEE"},
+    devolvida:{bg:C.red+"22",color:C.red,label:"Devolvida",rowBg:"transparent"},
+    em_garantia:{bg:C.teal+"33",color:C.teal,label:"Em garantia",rowBg:"transparent"},
   };
   return(
     <div>
@@ -2128,9 +2201,9 @@ function Historico({lista,usuario,onSelect}){
             const temGar=(os.garantias||[]).length>0;
             return(
               <div key={os.numero} onClick={()=>onSelect(os)}
-                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 12px",borderBottom:idx<fil.length-1?`1px solid ${C.navyLight}`:"none",cursor:"pointer",gap:12,flexWrap:"wrap"}}
-                onMouseEnter={e=>e.currentTarget.style.background='#F5F3F0'}
-                onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 12px",borderBottom:idx<fil.length-1?`1px solid ${C.navyLight}`:"none",cursor:"pointer",gap:12,flexWrap:"wrap",background:st.rowBg||"transparent",borderRadius:idx===0?"8px 8px 0 0":idx===fil.length-1?"0 0 8px 8px":"0"}}
+                onMouseEnter={e=>e.currentTarget.style.filter='brightness(0.96)'}
+                onMouseLeave={e=>e.currentTarget.style.filter='none'}>
                 <div style={{flex:1,minWidth:120}}>
                   <div style={{fontFamily:"monospace",fontSize:12,color:C.amber,marginBottom:2}}>{os.numero}</div>
                   <div style={{fontWeight:600,fontSize:14}}>{os.nome||"—"}</div>
@@ -2385,12 +2458,19 @@ export default function App(){
     storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
   },[]);
-  async function saveList(l){setLista(l);await storageSet("polar_os",l);}
+  const [syncErr,setSyncErr]=useState(false);
+  async function saveList(l){
+    setLista(l);
+    const ok=await storageSet("polar_os",l);
+    if(ok===false)setSyncErr(true);
+    else setSyncErr(false);
+  }
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
   function handleLogin(u){setUsuario(u);}
   function handleLogout(){setUsuario(null);setView("list");setTab("os");}
   function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl);setCur(os);setView("detail");setTab("os");}
   function handleUpdate(os){const nl=lista.map(x=>x.numero===os.numero?os:x);saveList(nl);setCur(os);}
+  function handleDelete(numero){const nl=lista.filter(x=>x.numero!==numero);saveList(nl);setCur(null);setView("list");}
   const isGer=(usuario&&usuario.role)==="gerencia"||(usuario&&usuario.role)==="admin";
   const isAdmin=(usuario&&usuario.role)==="admin";
   const pendentes=lista.filter(o=>["orcamento","aguardando_conclusao"].includes(o.status)).length;
@@ -2427,15 +2507,21 @@ export default function App(){
         </div>
       </div>
       <div style={{maxWidth:900,margin:"0 auto",padding:"24px 16px"}}>
+        {syncErr&&(
+          <div style={{background:"#B71C1C",color:"#FFFFFF",padding:"10px 16px",borderRadius:8,marginBottom:12,fontSize:13,fontWeight:600,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            ⚠ Erro ao sincronizar com o servidor. Verifique sua conexão e tente salvar novamente.
+            <button style={{background:"transparent",border:"1px solid #fff",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}} onClick={()=>setSyncErr(false)}>✕</button>
+          </div>
+        )}
         {view==="list"&&tab==="os"&&isGer&&!isAdmin&&pendentes>0&&(
           <div style={{...card,borderColor:C.red+"55",background:C.red+"11",marginBottom:12}}>
             <div style={{fontSize:13,color:C.red,fontWeight:700}}>🔴 {pendentes} OS aguardando sua ação</div>
           </div>
         )}
-        {view==="form"&&<Form init={editMode?cur:null} usuario={usuario} cfg={cfg} onSave={handleSave} onCancel={()=>setView(cur?"detail":"list")}/>}
-        {view==="detail"&&cur&&<Detalhe os={cur} usuario={usuario} cfg={cfg} usuarios={usuarios} onBack={()=>setView("list")} onEdit={()=>{setEditMode(true);setView("form");}} onUpdate={handleUpdate}/>}
+        {view==="form"&&<Form init={editMode?cur:null} usuario={usuario} cfg={cfg} usuarios={usuarios} onSave={handleSave} onCancel={()=>setView(cur?"detail":"list")}/>}
+        {view==="detail"&&cur&&<Detalhe os={cur} usuario={usuario} cfg={cfg} usuarios={usuarios} onBack={()=>setView("list")} onEdit={()=>{setEditMode(true);setView("form");}} onUpdate={handleUpdate} onDelete={handleDelete}/>}
         {view==="list"&&tab==="os"&&!isAdmin&&(
-          lista.filter(o=>isGer||o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id).length===0?(
+          lista.filter(o=>isGer||o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id||(o.tecnicosAdicionais||[]).includes(usuario.id)).length===0?(
             <div style={{...card,textAlign:"center",padding:"50px 20px"}}>
               <div style={{fontSize:40,marginBottom:12}}>🔧</div>
               <div style={{fontSize:18,fontWeight:700,marginBottom:8}}>Nenhuma OS criada</div>
