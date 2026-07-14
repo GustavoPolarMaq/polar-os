@@ -182,28 +182,53 @@ async function saveOSDoc(os){
 // Carrega todas as OS do Firestore (coleção individual)
 async function loadAllOS(){
   const db=getDb();
-  if(!db){
-    // fallback localStorage
+  // Carregar localStorage sempre (dados locais mais recentes do dispositivo)
+  let localData=[];
+  try{
     const v=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
-    return v?JSON.parse(v):[];
-  }
+    if(v)localData=JSON.parse(v);
+  }catch(e){}
+
+  if(!db)return localData;
+
   try{
     const snap=await db.collection("polar_os").get();
+
+    // Se Firebase vazio — tentar migrar da chave antiga (polar_dados)
     if(snap.empty){
-      // Tentar migrar da chave antiga se existir
       const old=await storageGet("polar_os");
-      if(old&&Array.isArray(old)){
-        // Migrar para coleção individual
+      if(old&&Array.isArray(old)&&old.length>0){
         for(const os of old)await saveOSDoc(os);
         return old;
       }
-      return [];
+      // Retornar local se tiver
+      return localData.length>0?localData:[];
     }
-    return snap.docs.map(d=>d.data());
+
+    const firebaseData=snap.docs.map(d=>d.data());
+
+    // Mesclar: para cada OS, usar a versão mais recente entre Firebase e local
+    const merged={};
+    for(const os of firebaseData){
+      merged[os.numero]=os;
+    }
+    for(const os of localData){
+      if(!os.numero)continue;
+      const fb=merged[os.numero];
+      // Usar local se for mais recente que o Firebase
+      if(!fb||(os.savedAt&&fb.savedAt&&os.savedAt>fb.savedAt)){
+        merged[os.numero]=os;
+        // Sincronizar versão mais recente de volta ao Firebase
+        saveOSDoc(os).catch(e=>console.error("sync local->firebase:",e));
+      }
+    }
+    const result=Object.values(merged);
+    // Atualizar localStorage com dados mesclados
+    try{localStorage.setItem("polar_polar_os",JSON.stringify(result));}catch(e){}
+    return result;
   }catch(e){
     console.error("loadAllOS falhou:",e.message);
-    const v=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
-    return v?JSON.parse(v):[];
+    return localData.length>0?localData:[];
   }
 }
 
