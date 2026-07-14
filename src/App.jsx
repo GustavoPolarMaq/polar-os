@@ -135,7 +135,11 @@ async function storageGet(k){
     const db=getDb();
     if(!db){const v=localStorage.getItem("polar_"+k);return v?JSON.parse(v):null;}
     const doc=await db.collection("polar_dados").doc(k).get();
-    if(!doc.exists)return null;
+    if(!doc.exists){
+      // fallback para localStorage caso exista lá
+      const v=localStorage.getItem("polar_"+k);
+      return v?JSON.parse(v):null;
+    }
     return doc.data().valor;
   }catch(e){
     try{const v=localStorage.getItem("polar_"+k);return v?JSON.parse(v):null;}catch(e2){return null;}
@@ -143,23 +147,63 @@ async function storageGet(k){
 }
 async function storageSet(k,v){
   const db=getDb();
-  if(!db){
-    // Sem Firebase — salva só local (modo offline)
-    try{localStorage.setItem("polar_"+k,JSON.stringify(v));}catch(e2){}
-    return false;
-  }
-  // Tenta Firebase com timeout de 10s
+  // Salva local sempre (rápido, funciona offline)
+  try{localStorage.setItem("polar_"+k,JSON.stringify(v));}catch(e2){}
+  if(!db)return false;
+  // Firebase em background — sem bloquear a UI
   try{
     await Promise.race([
       db.collection("polar_dados").doc(k).set({valor:v,atualizadoEm:new Date().toISOString()}),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),10000))
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),15000))
     ]);
-    localStorage.setItem("polar_"+k,JSON.stringify(v)); // cache local
     return true;
   }catch(e){
     console.error("Firebase storageSet falhou:",k,e.message);
-    try{localStorage.setItem("polar_"+k,JSON.stringify(v));}catch(e2){}
-    return false; // retorna false para indicar falha
+    return false;
+  }
+}
+
+// Salva uma OS individualmente (evita limite de 1MB do Firestore com lista inteira)
+async function saveOSDoc(os){
+  const db=getDb();
+  if(!db)return false;
+  try{
+    await Promise.race([
+      db.collection("polar_os").doc(os.numero).set({...os,savedAt:new Date().toISOString()}),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),15000))
+    ]);
+    return true;
+  }catch(e){
+    console.error("saveOSDoc falhou:",os.numero,e.message);
+    return false;
+  }
+}
+
+// Carrega todas as OS do Firestore (coleção individual)
+async function loadAllOS(){
+  const db=getDb();
+  if(!db){
+    // fallback localStorage
+    const v=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
+    return v?JSON.parse(v):[];
+  }
+  try{
+    const snap=await db.collection("polar_os").get();
+    if(snap.empty){
+      // Tentar migrar da chave antiga se existir
+      const old=await storageGet("polar_os");
+      if(old&&Array.isArray(old)){
+        // Migrar para coleção individual
+        for(const os of old)await saveOSDoc(os);
+        return old;
+      }
+      return [];
+    }
+    return snap.docs.map(d=>d.data());
+  }catch(e){
+    console.error("loadAllOS falhou:",e.message);
+    const v=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
+    return v?JSON.parse(v):[];
   }
 }
 
@@ -909,6 +953,7 @@ function GestaoFerramentas({onBack}){
 // ── SELETOR DE FERRAMENTAS (técnico escolhe ao iniciar) ──────────────────
 function SeletorFerramentas({selecionadas,onChange}){
   const[ferramentas,setFerramentas]=useState([]);
+  const[busca,setBusca]=useState("");
   useEffect(()=>{storageGet("polar_ferramentas").then(d=>{if(d)setFerramentas(d.filter(f=>f.ativo));});},[]);
   if(ferramentas.length===0)return(
     <div style={{...card,borderColor:C.navyLight}}>
@@ -921,15 +966,21 @@ function SeletorFerramentas({selecionadas,onChange}){
     if(ja)onChange(selecionadas.filter(s=>s.fid!==fid));
     else{const f=ferramentas.find(x=>x.fid===fid);onChange([...selecionadas,{fid:f.fid,nome:f.nome,levadoEm:new Date().toISOString(),devolvido:false}]);}
   }
+  const ordenadas=[...ferramentas].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR",{sensitivity:"base"}));
+  const filtradas=busca.trim()?ordenadas.filter(f=>f.nome.toLowerCase().includes(busca.toLowerCase())):ordenadas;
   return(
     <div style={{...card,borderColor:C.orange+"44"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.orange,textTransform:"uppercase",marginBottom:4}}>🔧 Ferramentas que está levando</div>
       <div style={{fontSize:12,color:C.gray,marginBottom:14}}>Selecione todas as ferramentas que vai levar para o serviço.</div>
-      <div style={{display:"flex",flexDirection:"column",gap:8}}>
-        {[...ferramentas].sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR",{sensitivity:"base"})).map(f=>{
+      <input style={{...inp,marginBottom:10}} placeholder="🔍 Pesquisar ferramenta..." value={busca} onChange={e=>setBusca(e.target.value)}/>
+      {selecionadas.length>0&&(
+        <div style={{fontSize:12,color:C.orange,fontWeight:600,marginBottom:10}}>✓ {selecionadas.length} selecionada{selecionadas.length>1?"s":""}: {selecionadas.map(s=>s.nome).join(", ")}</div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"325px",overflowY:"auto",paddingRight:4}}>
+        {filtradas.map(f=>{
           const sel=selecionadas.find(s=>s.fid===f.fid);
           return(
-            <label key={f.fid} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:8,border:`1px solid ${sel?C.orange:C.navyLight}`,background:sel?C.orange+"11":C.surface,cursor:"pointer",userSelect:"none"}}>
+            <label key={f.fid} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:8,border:"1px solid "+(sel?C.orange:C.navyLight),background:sel?C.orange+"11":C.surface,cursor:"pointer",userSelect:"none",flexShrink:0}}>
               <input type="checkbox" checked={!!sel} onChange={()=>toggle(f.fid)} style={{width:16,height:16,accentColor:C.orange}}/>
               <div style={{width:32,height:32,borderRadius:6,background:C.amber+"22",border:"1px solid "+C.amber+"44",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"monospace",fontWeight:700,color:C.amber,fontSize:12,flexShrink:0}}>#{String(f.fid).padStart(2,"0")}</div>
               <div style={{flex:1}}>
@@ -940,7 +991,9 @@ function SeletorFerramentas({selecionadas,onChange}){
             </label>
           );
         })}
+        {filtradas.length===0&&<div style={{fontSize:13,color:C.gray,textAlign:"center",padding:"16px 0"}}>Nenhuma ferramenta encontrada.</div>}
       </div>
+      {ferramentas.length>5&&<div style={{fontSize:11,color:C.gray,textAlign:"center",marginTop:8}}>↕ Role para ver todas as {ferramentas.length} ferramentas</div>}
     </div>
   );
 }
@@ -1358,16 +1411,20 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
             </div>
           </>
         ):(
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0"}}>
-            <span style={{fontSize:16,fontWeight:700}}>Valor total do serviço</span>
-            <span style={{fontSize:22,fontWeight:700,color:C.amber,fontFamily:"monospace"}}>{fmtR(os.valorTotal)}</span>
+          <div>
+            <label style={lbl}>Valor do serviço (R$)</label>
+            <input style={{...inp,color:os.valorTotalEditado?C.orange:C.amber,fontWeight:700,fontSize:16}} type="number" min={0} value={os.valorTotal}
+              onChange={e=>setOs(p=>({...p,valorTotal:parseFloat(e.target.value)||0,valorTotalEditado:true}))}/>
+            {os.valorTotalEditado
+              ?<div style={{fontSize:11,color:C.orange,marginTop:4}}>⚠ Valor editado manualmente — <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={()=>setOs(p=>({...p,valorTotal:calcValorServico(p.hEst,cfg,p.mats),valorTotalEditado:false}))}>recalcular</span></div>
+              :<div style={{fontSize:11,color:C.gray,marginTop:4}}>Calculado automaticamente ({os.hEst||0}min × R${(cfg&&cfg.precoHora)||120}/h)</div>}
           </div>
         )}
       </div>
 
       {/* Técnico adicional — aparece para qualquer usuário na criação */}
       {(()=>{
-        const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico"&&u.id!==usuario.id);
+        const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico"&&u.id!==usuario.id).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR",{sensitivity:"base"}));
         if(tecnicos.length===0)return null;
         return(
           <div style={card}>
@@ -2171,7 +2228,7 @@ function Historico({lista,usuario,onSelect}){
     aprovado_gerente:{bg:C.green+"33",color:C.green,label:"Aprovado",rowBg:"#E8F5E9"},
     em_andamento:{bg:C.steel+"33",color:C.steel,label:"Em andamento",rowBg:"#E3F2FD"},
     aguardando_conclusao:{bg:C.red+"33",color:C.red,label:"Aguard. aprovação",rowBg:"transparent"},
-    concluida:{bg:C.green+"33",color:C.green,label:"Concluída",rowBg:"transparent"},
+    concluida:{bg:C.green+"33",color:C.green,label:"Concluída",rowBg:"#E8F5E9"},
     cancelada:{bg:C.red+"22",color:C.red,label:"Cancelada",rowBg:"#FFEBEE"},
     devolvida:{bg:C.red+"22",color:C.red,label:"Devolvida",rowBg:"transparent"},
     em_garantia:{bg:C.teal+"33",color:C.teal,label:"Em garantia",rowBg:"transparent"},
@@ -2453,25 +2510,41 @@ export default function App(){
   const[cfg,setCfg]=useState(CONFIG_PADRAO);
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
   useEffect(()=>{
-    storageGet("polar_os").then(d=>{if(d)setLista(d);});
+    loadAllOS().then(d=>{if(d&&d.length>0)setLista(d);});
     // Sessão não persistida — login obrigatório a cada acesso
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
     storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
   },[]);
   const [syncErr,setSyncErr]=useState(false);
-  async function saveList(l){
+  async function saveList(l,osSalva){
     setLista(l);
-    const ok=await storageSet("polar_os",l);
-    if(ok===false)setSyncErr(true);
-    else setSyncErr(false);
+    // Salva local imediatamente
+    try{localStorage.setItem("polar_polar_os",JSON.stringify(l));}catch(e){}
+    // Salva no Firebase — se tiver OS específica, salva só ela (mais rápido)
+    const db=getDb();
+    if(!db){setSyncErr(true);return;}
+    let ok=true;
+    if(osSalva){
+      ok=await saveOSDoc(osSalva);
+    } else {
+      for(const os of l){const r=await saveOSDoc(os);if(!r)ok=false;}
+    }
+    setSyncErr(!ok);
   }
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
   function handleLogin(u){setUsuario(u);}
   function handleLogout(){setUsuario(null);setView("list");setTab("os");}
-  function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl);setCur(os);setView("detail");setTab("os");}
-  function handleUpdate(os){const nl=lista.map(x=>x.numero===os.numero?os:x);saveList(nl);setCur(os);}
-  function handleDelete(numero){const nl=lista.filter(x=>x.numero!==numero);saveList(nl);setCur(null);setView("list");}
+  function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl,os);setCur(os);setView("detail");setTab("os");}
+  function handleUpdate(os){const nl=lista.map(x=>x.numero===os.numero?os:x);saveList(nl,os);setCur(os);}
+  async function handleDelete(numero){
+    const nl=lista.filter(x=>x.numero!==numero);
+    saveList(nl);
+    // Apagar do Firestore
+    const db=getDb();
+    if(db){try{await db.collection("polar_os").doc(numero).delete();}catch(e){console.error("delete OS:",e);}}
+    setCur(null);setView("list");
+  }
   const isGer=(usuario&&usuario.role)==="gerencia"||(usuario&&usuario.role)==="admin";
   const isAdmin=(usuario&&usuario.role)==="admin";
   const pendentes=lista.filter(o=>["orcamento","aguardando_conclusao"].includes(o.status)).length;
