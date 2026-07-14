@@ -2494,13 +2494,13 @@ export default function App(){
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
           {view==="list"&&<>
-            {!isAdmin&&<NavBtn id="os" label="OS" badge={isGer?pendentes:0}/>}
-            {isGer&&!isAdmin&&<NavBtn id="rel" label="Relatórios"/>}
+            <NavBtn id="os" label="OS" badge={isGer?pendentes:0}/>
+            {isGer&&<NavBtn id="rel" label="Relatórios"/>}
             {isGer&&<NavBtn id="usuarios" label="Usuários"/>}
             {isGer&&<NavBtn id="ferramentas" label="🔧 Ferramentas"/>}
             {isAdmin&&<NavBtn id="config" label="Configurações"/>}
             {isAdmin&&<NavBtn id="ferramentas" label="🔧 Ferramentas"/>}
-            {!isAdmin&&<button style={{...btnP,padding:"6px 14px",fontSize:13}} onClick={()=>{setCur(null);setEditMode(false);setView("form");setTab("os");}}>+ Nova OS</button>}
+            <button style={{...btnP,padding:"6px 14px",fontSize:13}} onClick={()=>{setCur(null);setEditMode(false);setView("form");setTab("os");}}>+ Nova OS</button>
           </>}
           {view!=="list"&&<button style={btnS} onClick={()=>setView(view==="detail"?"list":(cur?"detail":"list"))}>← Voltar</button>}
           <button style={{...btnS,padding:"6px 10px",fontSize:12}} onClick={handleLogout}>Sair</button>
@@ -2513,14 +2513,14 @@ export default function App(){
             <button style={{background:"transparent",border:"1px solid #fff",color:"#fff",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontSize:12}} onClick={()=>setSyncErr(false)}>✕</button>
           </div>
         )}
-        {view==="list"&&tab==="os"&&isGer&&!isAdmin&&pendentes>0&&(
+        {view==="list"&&tab==="os"&&isGer&&pendentes>0&&(
           <div style={{...card,borderColor:C.red+"55",background:C.red+"11",marginBottom:12}}>
             <div style={{fontSize:13,color:C.red,fontWeight:700}}>🔴 {pendentes} OS aguardando sua ação</div>
           </div>
         )}
         {view==="form"&&<Form init={editMode?cur:null} usuario={usuario} cfg={cfg} usuarios={usuarios} onSave={handleSave} onCancel={()=>setView(cur?"detail":"list")}/>}
         {view==="detail"&&cur&&<Detalhe os={cur} usuario={usuario} cfg={cfg} usuarios={usuarios} onBack={()=>setView("list")} onEdit={()=>{setEditMode(true);setView("form");}} onUpdate={handleUpdate} onDelete={handleDelete}/>}
-        {view==="list"&&tab==="os"&&!isAdmin&&(
+        {view==="list"&&tab==="os"&&(
           lista.filter(o=>isGer||o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id||(o.tecnicosAdicionais||[]).includes(usuario.id)).length===0?(
             <div style={{...card,textAlign:"center",padding:"50px 20px"}}>
               <div style={{fontSize:40,marginBottom:12}}>🔧</div>
@@ -2530,7 +2530,7 @@ export default function App(){
             </div>
           ):<Historico lista={lista} usuario={usuario} onSelect={o=>{setCur(o);setView("detail");}}/>
         )}
-        {view==="list"&&tab==="rel"&&isGer&&!isAdmin&&<Relatorios lista={lista} usuarios={usuarios}/>}
+        {view==="list"&&tab==="rel"&&isGer&&<Relatorios lista={lista} usuarios={usuarios}/>}
         {view==="list"&&tab==="usuarios"&&isGer&&<GestaoUsuarios onBack={()=>setView("list")}/>}
         {view==="list"&&tab==="ferramentas"&&isGer&&<GestaoFerramentas onBack={()=>setView("list")}/>}
         {view==="list"&&tab==="config"&&isAdmin&&<Configuracoes cfg={cfg} onSave={saveCfg}/>}
