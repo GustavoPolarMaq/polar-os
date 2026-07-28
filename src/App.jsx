@@ -121,6 +121,14 @@ function somaHoras(trechos=[]){
     return acc;
   },0);
 }
+function fmtMin(h){
+  if(h==null||isNaN(h)||h===0)return "0min";
+  const totalMin=Math.round(h*60);
+  if(totalMin<60)return totalMin+"min";
+  const hrs=Math.floor(totalMin/60);
+  const mins=totalMin%60;
+  return mins>0?hrs+"h "+mins+"min":hrs+"h";
+}
 
 let _db=null;
 function getDb(){
@@ -720,7 +728,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
                 <div style={{fontSize:11,color:C.gray,fontWeight:700,minWidth:22}}>#{i+1}</div>
                 <div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Saída </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.saidaLoja||d.saida)}</span></div>
                 {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
-                {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{dur}h</div>}
+                {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{fmtMin(dur)}</div>}
                 {isGer&&onEditarTrecho&&(
                   <button style={{background:"#1565C0",border:"none",color:"#FFFFFF",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}} onClick={()=>onEditarTrecho(d)}>
                     ✏ Editar
@@ -732,7 +740,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {trechos.filter(d=>d.retorno).length>0&&(
             <div style={{display:"flex",justifyContent:"flex-end",alignItems:"center",gap:8,paddingTop:8,borderTop:"1px solid #ECEAE7"}}>
               <span style={{fontSize:11,color:C.gray,fontWeight:700,textTransform:"uppercase"}}>Total em campo</span>
-              <span style={{fontFamily:"monospace",fontSize:20,fontWeight:700,color:cor}}>{totalH}h</span>
+              <span style={{fontFamily:"monospace",fontSize:20,fontWeight:700,color:cor}}>{fmtMin(totalH)}</span>
             </div>
           )}
         </div>
@@ -2041,8 +2049,8 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
         <div style={{display:"flex",gap:20,flexWrap:"wrap",marginBottom:(os.solicit||os.obsOrcamento||os.relatorio||os.diag)?14:0}}>
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tipo</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.tipo}</div></div>
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Estimado</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.hEst}min</div></div>
-          {hDesl>0&&<div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tempo real</div><div style={{fontWeight:600,color:"#CC1F1F"}}>{hDesl}h</div></div>}
-          {hGar>0&&<div><div style={{fontSize:10,color:C.teal,textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Garantia</div><div style={{fontWeight:600,color:C.teal}}>{hGar}h</div></div>}
+          {hDesl>0&&<div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Tempo real</div><div style={{fontWeight:600,color:"#CC1F1F"}}>{fmtMin(hDesl)}</div></div>}
+          {hGar>0&&<div><div style={{fontSize:10,color:C.teal,textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Garantia</div><div style={{fontWeight:600,color:C.teal}}>{fmtMin(hGar)}</div></div>}
         </div>
 
         {os.solicit&&<div style={{marginBottom:10}}><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Solicitado</div><div style={{fontSize:14,color:"#E0E0E0"}}>{os.solicit}</div></div>}
@@ -2143,7 +2151,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
         {os.garantia&&<div style={{marginTop:12,padding:"10px 14px",background:C.green+"11",borderRadius:8,border:`1px solid ${C.green}33`,fontSize:13,color:C.green}}>✓ Garantia: {os.garantia}</div>}
         {hGar>0&&isGer&&(
           <div style={{marginTop:10,padding:"10px 14px",background:C.teal+"11",borderRadius:8,border:`1px solid ${C.teal}33`,fontSize:13,color:C.teal}}>
-            ⚙ Tempo de garantia utilizado: {hGar}h — {gars.filter(d=>d.retorno).length} visita(s)
+            ⚙ Tempo de garantia utilizado: {fmtMin(hGar)} — {gars.filter(d=>d.retorno).length} visita(s)
           </div>
         )}
       </div>
