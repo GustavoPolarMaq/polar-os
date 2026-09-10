@@ -1,3 +1,5 @@
+
+
 import { useState, useEffect, useRef } from "react";
 const LOGO_B64="data:image/jpeg;base64,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";
 
@@ -257,10 +259,17 @@ function comprimirImagem(file, maxW=1200, qualidade=0.72) {
   return new Promise((resolve, reject) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo) {
-      // vídeos: só armazena metadados + thumbnail se possível; base64 full é inviável
-      // guardamos nome, tipo, tamanho e um dataURL thumb via canvas se for mp4
-      const url = URL.createObjectURL(file);
-      resolve({ tipo:"video", nome:file.name, mime:file.type, src:url, tamanho:file.size, ts:new Date().toISOString() });
+      if(file.size > 50 * 1024 * 1024){
+        reject(new Error("Vídeo muito grande (máx 50MB). Grave um vídeo mais curto."));
+        return;
+      }
+      // Converter para base64 para persistir (inclui .mov, .mp4, etc.)
+      const reader2 = new FileReader();
+      reader2.onerror = reject;
+      reader2.onload = ev => {
+        resolve({ tipo:"video", nome:file.name, mime:file.type||"video/mp4", src:ev.target.result, tamanho:file.size, ts:new Date().toISOString() });
+      };
+      reader2.readAsDataURL(file);
       return;
     }
     const reader = new FileReader();
@@ -662,8 +671,7 @@ function PainelFeedbackWhatsApp({ os, cfg }) {
 }
 
 function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncerrar,
-  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja,isGer,onEditarTrecho}){
-
+  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja,isGer,onEditarTrecho,onIrParaOutroServico}){
   const trechoAberto  = trechos.find(d=>(d.saidaLoja||d.saida)&&!d.retorno);
   const ultimoTrecho  = trechos.length>0?trechos[trechos.length-1]:null;
   const totalH        = parseFloat(somaHoras(trechos).toFixed(2));
@@ -695,9 +703,12 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
   // Concluído — valida ferramentas + obrigatórios + abre tela gerente
   function handleConcluir(){
     if(!ferrOk())return;
-    if(!(os.fotosAntes&&os.fotosAntes.length)){setErrCampo("Adicione pelo menos 1 foto ANTES do serviço.");return;}
-    if(!(os.fotosDepois&&os.fotosDepois.length)){setErrCampo("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
-    if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Colha a assinatura do cliente antes de concluir.");return;}
+    // Gerente pode concluir sem foto obrigatória
+    if(!isGer){
+      if(!(os.fotosAntes&&os.fotosAntes.length)){setErrCampo("Adicione pelo menos 1 foto ANTES do serviço.");return;}
+      if(!(os.fotosDepois&&os.fotosDepois.length)){setErrCampo("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
+      if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Colha a assinatura do cliente antes de concluir.");return;}
+    }
     setErrCampo("");
     onEncerrar();
   }
@@ -755,12 +766,9 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
 
       {/* ── A: Saí da loja ── */}
       {emAndamento&&!trechoAberto&&!chegouNaLoja&&(
-        <div>
-          <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
-          <button style={{...btnP,width:"100%",padding:"15px",fontSize:16,fontWeight:700,marginTop:8}} onClick={handleSaida}>
-            🛒 Saí da loja
-          </button>
-        </div>
+        <button style={{...btnP,width:"100%",padding:"15px",fontSize:16,fontWeight:700}} onClick={handleSaida}>
+          🛒 Saí da loja
+        </button>
       )}
 
       {/* ── B: Cheguei no local ── */}
@@ -866,11 +874,20 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
               </div>
               {/* A caminho da loja */}
               {trechoAberto&&trechoAberto.saidaLocal&&!trechoAberto.chegadaLoja&&(
-                <div style={{marginTop:12,background:"#FFF8E1",borderRadius:10,padding:14,border:"1px solid #FFE082"}}>
-                  <div style={{fontSize:13,color:"#E65100",fontWeight:600,marginBottom:10}}>🚗 A caminho da loja...</div>
-                  <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700}} onClick={onChegadaLoja}>
-                    🏠 Cheguei na loja
-                  </button>
+                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:10}}>
+                  <div style={{background:"#FFF8E1",borderRadius:10,padding:14,border:"1px solid #FFE082"}}>
+                    <div style={{fontSize:13,color:"#E65100",fontWeight:600,marginBottom:10}}>🚗 A caminho...</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700}} onClick={onChegadaLoja}>
+                        🏠 Cheguei na loja
+                      </button>
+                      {onIrParaOutroServico&&(
+                        <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700,background:"#1565C0"}} onClick={onIrParaOutroServico}>
+                          📋 Ir para outro serviço
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -1753,6 +1770,42 @@ function ModalSenhaGerente({onConfirmar,onFechar,err}){
   );
 }
 
+// ── MODAL: Ir para outro serviço ─────────────────────────────────────────
+function ModalIrParaOutroServico({lista,usuario,onConfirmar,onFechar}){
+  const [selecionado,setSelecionado]=useState(null);
+  const disponiveis=lista.filter(o=>
+    o.status==="em_andamento"&&
+    (o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id||(o.tecnicosAdicionais||[]).includes(usuario.id))
+  );
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:600,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onFechar}>
+      <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:440,width:"100%",maxHeight:"80vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:16,fontWeight:700,marginBottom:4,color:"#1A1A1A"}}>📋 Ir para outro serviço</div>
+        <div style={{fontSize:13,color:"#888",marginBottom:20}}>Selecione a O.S. para a qual você está indo agora. O tempo do serviço atual será encerrado e o novo será iniciado.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+          {disponiveis.length===0&&<div style={{fontSize:13,color:"#888",textAlign:"center",padding:"20px 0"}}>Nenhuma outra O.S. em andamento.</div>}
+          {disponiveis.map(o=>(
+            <label key={o.numero} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 14px",borderRadius:10,border:"1.5px solid "+(selecionado===o.numero?"#1565C0":"#E0DEDB"),background:selecionado===o.numero?"#E3F2FD":"#FAFAFA",cursor:"pointer"}} onClick={()=>setSelecionado(o.numero)}>
+              <input type="radio" checked={selecionado===o.numero} onChange={()=>setSelecionado(o.numero)} style={{accentColor:"#1565C0"}}/>
+              <div>
+                <div style={{fontWeight:700,fontSize:14,color:"#1565C0"}}>{o.numero}</div>
+                <div style={{fontWeight:600,fontSize:13}}>{o.nome||"(sem cliente)"}</div>
+                <div style={{fontSize:12,color:"#888"}}>{o.tipo}</div>
+              </div>
+            </label>
+          ))}
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,fontSize:14,cursor:"pointer"}} onClick={onFechar}>Cancelar</button>
+          <button style={{flex:2,background:selecionado?"#1565C0":"#CCCCCC",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,fontSize:14,cursor:selecionado?"pointer":"not-allowed"}} disabled={!selecionado} onClick={()=>{const o=disponiveis.find(x=>x.numero===selecionado);if(o)onConfirmar(o);}}>
+            Ir para este serviço →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
   const tecnicos=(usuarios||[]).filter(u=>u.role==="tecnico");
   const[selecionado,setSelecionado]=useState(null);
@@ -1781,7 +1834,7 @@ function ModalAtribuirTecnico({usuarios,onConfirmar,onFechar}){
   );
 }
 
-function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
+function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete,lista,onNavigateToOS}){
   const isGer=usuario.role==="gerencia"||usuario.role==="admin";
   const isAdmin=usuario.role==="admin";
   const totMat=(os.mats||[]).reduce((a,m)=>a+(parseFloat(m.q)||0)*(parseFloat(m.v)||0),0)||0;
@@ -1796,6 +1849,19 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
   const emGarantia=os.status==="em_garantia";
   const [telaConclusao,setTelaConclusao]=useState(false);
   const [atribuindo,setAtribuindo]=useState(false);
+  const [irParaOutro,setIrParaOutro]=useState(false);
+
+  function handleIrParaOutroServico(osDestino){
+    // Fechar trecho atual registrando saidaLocal
+    const agora=new Date().toISOString();
+    const nd=[...desl];
+    const idx=nd.findIndex(d=>d.chegadaLocal&&!d.saidaLocal);
+    if(idx>=0)nd[idx]={...nd[idx],saidaLocal:agora,saida:nd[idx].saidaLoja,retorno:null};
+    onUpdate({...os,deslocamentos:nd,savedAt:agora});
+    setIrParaOutro(false);
+    // Navegar para a OS destino e iniciar novo trecho nela
+    if(onNavigateToOS)onNavigateToOS(osDestino,agora);
+  }
   const [editandoTrecho,setEditandoTrecho]=useState(null); // {tipo:"servico"|"garantia", trecho}
   const [confirmacaoPendente,setConfirmacaoPendente]=useState(null); // função a executar após senha
   const [errSenha,setErrSenha]=useState("");
@@ -1973,6 +2039,14 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
         onFechar={()=>setAtribuindo(false)}
       />
     )}
+    {irParaOutro&&(
+      <ModalIrParaOutroServico
+        lista={lista||[]}
+        usuario={usuario}
+        onConfirmar={handleIrParaOutroServico}
+        onFechar={()=>setIrParaOutro(false)}
+      />
+    )}
     {editandoTrecho&&(
       <ModalEditarHorario
         trecho={editandoTrecho.trecho}
@@ -2079,6 +2153,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete}){
           onUpdateOS={onUpdate}
           isGer={isGer}
           onEditarTrecho={trecho=>setEditandoTrecho({tipo:"servico",trecho})}
+          onIrParaOutroServico={()=>setIrParaOutro(true)}
         />
       )}
 
@@ -2552,6 +2627,27 @@ export default function App(){
   const[usuario,setUsuario]=useState(null);
   const[tab,setTab]=useState("os");
   const[view,setView]=useState("list");
+
+  // Item 1: Botão voltar do celular — intercepta popstate
+  const setViewNav=React.useCallback((v)=>{
+    if(v==="list")window.history.pushState({v:"list"},"","");
+    else if(v==="detail")window.history.pushState({v:"detail"},"","");
+    else if(v==="form")window.history.pushState({v:"form"},"","");
+    setView(v);
+  },[]);
+  React.useEffect(()=>{
+    window.history.replaceState({v:"list"},"","");
+    const handler=(e)=>{
+      const prev=e.state&&e.state.v;
+      if(!prev){setView("list");return;}
+      if(prev==="list"){setView("list");setCur(null);}
+      else if(prev==="detail"&&cur){setView("detail");}
+      else{setView("list");setCur(null);}
+      window.history.pushState({v:prev},"","");
+    };
+    window.addEventListener("popstate",handler);
+    return()=>window.removeEventListener("popstate",handler);
+  },[cur]);
   const[lista,setLista]=useState([]);
   const[cur,setCur]=useState(null);
   const[editMode,setEditMode]=useState(false);
@@ -2582,8 +2678,8 @@ export default function App(){
   }
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
   function handleLogin(u){setUsuario(u);}
-  function handleLogout(){setUsuario(null);setView("list");setTab("os");}
-  function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl,os);setCur(os);setView("detail");setTab("os");}
+  function handleLogout(){setUsuario(null);setViewNav("list");setTab("os");}
+  function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl,os);setCur(os);setViewNav("detail");setTab("os");}
   function handleUpdate(os){const nl=lista.map(x=>x.numero===os.numero?os:x);saveList(nl,os);setCur(os);}
   async function handleDelete(numero){
     const nl=lista.filter(x=>x.numero!==numero);
@@ -2622,7 +2718,7 @@ export default function App(){
             {isGer&&<NavBtn id="ferramentas" label="🔧 Ferramentas"/>}
             {isAdmin&&<NavBtn id="config" label="Configurações"/>}
             {isAdmin&&<NavBtn id="ferramentas" label="🔧 Ferramentas"/>}
-            <button style={{...btnP,padding:"6px 14px",fontSize:13}} onClick={()=>{setCur(null);setEditMode(false);setView("form");setTab("os");}}>+ Nova OS</button>
+            <button style={{...btnP,padding:"6px 14px",fontSize:13}} onClick={()=>{setCur(null);setEditMode(false);setViewNav("form");setTab("os");}}>+ Nova OS</button>
           </>}
           {view!=="list"&&<button style={btnS} onClick={()=>setView(view==="detail"?"list":(cur?"detail":"list"))}>← Voltar</button>}
           <button style={{...btnS,padding:"6px 10px",fontSize:12}} onClick={handleLogout}>Sair</button>
@@ -2640,8 +2736,17 @@ export default function App(){
             <div style={{fontSize:13,color:C.red,fontWeight:700}}>🔴 {pendentes} OS aguardando sua ação</div>
           </div>
         )}
-        {view==="form"&&<Form init={editMode?cur:null} usuario={usuario} cfg={cfg} usuarios={usuarios} onSave={handleSave} onCancel={()=>setView(cur?"detail":"list")}/>}
-        {view==="detail"&&cur&&<Detalhe os={cur} usuario={usuario} cfg={cfg} usuarios={usuarios} onBack={()=>setView("list")} onEdit={()=>{setEditMode(true);setView("form");}} onUpdate={handleUpdate} onDelete={handleDelete}/>}
+        {view==="form"&&<Form init={editMode?cur:null} usuario={usuario} cfg={cfg} usuarios={usuarios} onSave={handleSave} onCancel={()=>setViewNav(cur?"detail":"list")}/>}
+        {view==="detail"&&cur&&<Detalhe os={cur} usuario={usuario} cfg={cfg} usuarios={usuarios} lista={lista} onBack={()=>setViewNav("list")} onEdit={()=>{setEditMode(true);setViewNav("form");}} onUpdate={handleUpdate} onDelete={handleDelete} onNavigateToOS={(osDestino,horaSaida)=>{
+          // Abrir OS destino e iniciar novo trecho nela automaticamente
+          const agora=horaSaida||new Date().toISOString();
+          const osAtualizada={...osDestino,
+            deslocamentos:[...(osDestino.deslocamentos||[]),{id:Date.now(),saidaLoja:agora,chegadaLocal:null,saidaLocal:null,chegadaLoja:null,retorno:null,observacao:"Continuação de rota"}],
+            etapaExecucao:0,savedAt:agora};
+          handleUpdate(osAtualizada);
+          setCur(osAtualizada);
+          setViewNav("detail");
+        }}/>}
         {view==="list"&&tab==="os"&&(
           lista.filter(o=>isGer||o.criadoPor===usuario.id||o.tecnicoAtribuido===usuario.id||(o.tecnicosAdicionais||[]).includes(usuario.id)).length===0?(
             <div style={{...card,textAlign:"center",padding:"50px 20px"}}>
@@ -2653,8 +2758,8 @@ export default function App(){
           ):<Historico lista={lista} usuario={usuario} onSelect={o=>{setCur(o);setView("detail");}}/>
         )}
         {view==="list"&&tab==="rel"&&isGer&&<Relatorios lista={lista} usuarios={usuarios}/>}
-        {view==="list"&&tab==="usuarios"&&isGer&&<GestaoUsuarios onBack={()=>setView("list")}/>}
-        {view==="list"&&tab==="ferramentas"&&isGer&&<GestaoFerramentas onBack={()=>setView("list")}/>}
+        {view==="list"&&tab==="usuarios"&&isGer&&<GestaoUsuarios onBack={()=>setViewNav("list")}/>}
+        {view==="list"&&tab==="ferramentas"&&isGer&&<GestaoFerramentas onBack={()=>setViewNav("list")}/>}
         {view==="list"&&tab==="config"&&isAdmin&&<Configuracoes cfg={cfg} onSave={saveCfg}/>}
       </div>
     </div>
