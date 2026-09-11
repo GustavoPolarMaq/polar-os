@@ -431,9 +431,11 @@ function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssin
   );
 }
 
-function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar }) {
+function PainelAssinatura({ assinatura, onChange, somenteLeitura, assinaturaRef }) {
   const canvasRef = useRef(null);
   const canvasFullRef = useRef(null);
+  // Expor canvasRef para o pai capturar a assinatura no momento certo
+  useEffect(()=>{if(assinaturaRef)assinaturaRef.current=canvasRef.current;},[assinaturaRef]);
   const [temTraco, setTemTraco] = useState(false);
   const [nomeCliente, setNomeCliente] = useState((assinatura&&assinatura.nome)||"");
   const [fullscreen, setFullscreen] = useState(false);
@@ -547,11 +549,7 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
         {/* canvas compacto no card */}
         <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:C.surface,marginBottom:12,touchAction:"none",height:160}}>
           <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!autoConfirmar)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
-              onTracoFinalizado={autoConfirmar?cv=>{
-                if(!cv)return;
-                const img=cv.toDataURL("image/png");
-                onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});
-              }:null}/>
+              onTracoFinalizado={null}/>
         </div>
 
         {!somenteLeitura&&!jaAssinado&&(
@@ -559,8 +557,8 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
             <label style={lbl}>Nome do cliente (opcional)</label>
             <input style={{...inp,marginBottom:12}} value={nomeCliente} onChange={e=>setNomeCliente(e.target.value)} placeholder="Nome legível do cliente"/>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-              {!autoConfirmar&&<button style={{...btnG,opacity:temTraco?1:0.45,cursor:temTraco?"pointer":"not-allowed"}} onClick={()=>confirmar(canvasRef)}>✓ Confirmar assinatura</button>}
-              {autoConfirmar&&<div style={{fontSize:12,color:C.steel,flex:1}}>✏ Assine acima — confirmado ao clicar em "Saí do local"</div>}
+              <button style={{...btnG,opacity:temTraco?1:0.45,cursor:temTraco?"pointer":"not-allowed"}} onClick={()=>confirmar(canvasRef)}>✓ Confirmar assinatura</button>
+              {!assinatura&&<div style={{fontSize:12,color:C.steel,flex:1,marginLeft:8}}>Ou confirma ao clicar em "Saí do local"</div>}
               <button style={btnS} onClick={limpar}>🗑 Limpar</button>
             </div>
           </>
@@ -678,8 +676,9 @@ function PainelFeedbackWhatsApp({ os, cfg }) {
 }
 
 function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncerrar,
-  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja,isGer,onEditarTrecho,onIrParaOutroServico}){
+  execucaoInline,os,onUpdateOS,onChegadaLocal,onSaidaLocal,onChegadaLoja,isGer,onEditarTrecho,onIrParaOutroServico,usuarios}){
   const trechoAberto  = trechos.find(d=>(d.saidaLoja||d.saida)&&!d.retorno);
+  const assinaturaCanvasRef = useRef(null);
   const ultimoTrecho  = trechos.length>0?trechos[trechos.length-1]:null;
   const totalH        = parseFloat(somaHoras(trechos).toFixed(2));
   const [etapa,setEtapa]       = useState(0);
@@ -693,9 +692,16 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     return true;
   }
 
-  // "Saí do local" — valida ferramentas ANTES de liberar
+  // "Saí do local" — valida ferramentas + captura assinatura do canvas
   function handleSaidaLocal(){
     if(!ferrOk())return;
+    if(assinaturaCanvasRef.current&&(!os.assinatura||!os.assinatura.img)){
+      const cv=assinaturaCanvasRef.current;
+      const img=cv.toDataURL("image/png");
+      const blank=document.createElement("canvas");
+      blank.width=cv.width;blank.height=cv.height;
+      if(img!==blank.toDataURL())upOS("assinatura",{img,nome:"",ts:new Date().toISOString()});
+    }
     setErrCampo("");
     onSaidaLocal();
   }
@@ -725,13 +731,41 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     onEncerrar();
   }
 
+  const[pedindoSenhaFoto,setPedindoSenhaFoto]=useState(null); // "antes"|"depois"
+  const[senhaFotoErr,setSenhaFotoErr]=useState("");
+  const[senhaFoto,setSenhaFoto]=useState("");
+
+  function tentarAutorizarSemFoto(tipo){
+    if(isGer){
+      // Gerente já logado — autoriza direto
+      if(tipo==="antes")setAutorizouSemFotoAntes(true);
+      else setAutorizouSemFotoDepois(true);
+      setErrCampo("");
+    } else {
+      setPedindoSenhaFoto(tipo);
+      setSenhaFoto("");
+      setSenhaFotoErr("");
+    }
+  }
+
+  function confirmarSenhaFoto(){
+    // Verificar senha de gerente para autorizar
+    const ger=(usuarios||[]).find(u=>u.senha===senhaFoto&&(u.role==="gerencia"||u.role==="admin"));
+    if(!ger){setSenhaFotoErr("Senha incorreta.");return;}
+    if(pedindoSenhaFoto==="antes")setAutorizouSemFotoAntes(true);
+    else setAutorizouSemFotoDepois(true);
+    setPedindoSenhaFoto(null);
+    setErrCampo("");
+  }
+
   function MsgErroFoto({tipo}){
     const texto=tipo==="sem_foto_antes"?"Adicione pelo menos 1 foto ANTES do serviço.":"Adicione pelo menos 1 foto DEPOIS do serviço.";
-    const setAutorizar=tipo==="sem_foto_antes"?setAutorizouSemFotoAntes:setAutorizouSemFotoDepois;
     return(
       <div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>
         ⚠ {texto}
-        {isGer&&<span style={{marginLeft:8,fontSize:12,color:"#1565C0",cursor:"pointer",textDecoration:"underline",fontWeight:400}} onClick={()=>{setAutorizar(true);setErrCampo("");}}>autorizar sem foto</span>}
+        <span style={{marginLeft:8,fontSize:12,color:"#1565C0",cursor:"pointer",textDecoration:"underline",fontWeight:400}} onClick={()=>tentarAutorizarSemFoto(tipo==="sem_foto_antes"?"antes":"depois")}>
+          autorizar sem foto
+        </span>
       </div>
     );
   }
@@ -818,9 +852,9 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {etapa===0&&(
             <div>
               <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
-              {(os.fotosAntes||[]).length===0&&isGer&&(
+              {(os.fotosAntes||[]).length===0&&!autorizouSemFotoAntes&&(
                 <div style={{fontSize:12,color:"#888",marginBottom:8}}>
-                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>setAutorizouSemFotoAntes(true)}>Autorizar sem foto ANTES</span>
+                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>tentarAutorizarSemFoto("antes")}>Autorizar sem foto ANTES</span>
                 </div>
               )}
               {autorizouSemFotoAntes&&(os.fotosAntes||[]).length===0&&(
@@ -859,9 +893,9 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {etapa===3&&(
             <div>
               <PainelMidia titulo="Fotos — DEPOIS do serviço" cor={C.green} obrigatorio={true} itens={os.fotosDepois||[]} onChange={v=>upOS("fotosDepois",v)} somenteLeitura={false}/>
-              {(os.fotosDepois||[]).length===0&&isGer&&(
+              {(os.fotosDepois||[]).length===0&&!autorizouSemFotoDepois&&(
                 <div style={{fontSize:12,color:"#888",marginTop:8}}>
-                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>setAutorizouSemFotoDepois(true)}>Autorizar sem foto DEPOIS</span>
+                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>tentarAutorizarSemFoto("depois")}>Autorizar sem foto DEPOIS</span>
                 </div>
               )}
               {autorizouSemFotoDepois&&(os.fotosDepois||[]).length===0&&(
@@ -894,7 +928,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* H — Assinatura */}
           {etapa===5&&(
             <div>
-              <PainelAssinatura key="assinatura-os" assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false} autoConfirmar={true}/>
+              <PainelAssinatura key="assinatura-os" assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false} assinaturaRef={assinaturaCanvasRef}/>
               {errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>}
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(4)}>← Voltar</button>
@@ -928,6 +962,22 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal de senha para autorizar sem foto (técnico) */}
+      {pedindoSenhaFoto&&(
+        <div style={{position:"fixed",inset:0,zIndex:700,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setPedindoSenhaFoto(null)}>
+          <div style={{background:"#FFFFFF",borderRadius:16,padding:24,maxWidth:340,width:"100%"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>🔐 Autorização do gerente</div>
+            <div style={{fontSize:13,color:"#888",marginBottom:16}}>Senha do gerente para autorizar sem foto {pedindoSenhaFoto==="antes"?"ANTES":"DEPOIS"}.</div>
+            <input type="password" autoComplete="new-password" style={{width:"100%",background:"#F7F6F4",border:"1px solid #D8D5D0",borderRadius:8,padding:"12px",fontSize:20,letterSpacing:4,textAlign:"center",marginBottom:12,boxSizing:"border-box"}} value={senhaFoto} onChange={e=>setSenhaFoto(e.target.value)} placeholder="••••••" onKeyDown={e=>e.key==="Enter"&&confirmarSenhaFoto()}/>
+            {senhaFotoErr&&<div style={{color:"#B71C1C",fontSize:13,marginBottom:12,fontWeight:600}}>⚠ {senhaFotoErr}</div>}
+            <div style={{display:"flex",gap:10}}>
+              <button style={{flex:1,background:"#F0F0EE",color:"#444",border:"1px solid #D0CEC9",borderRadius:8,padding:"12px",fontWeight:600,cursor:"pointer"}} onClick={()=>setPedindoSenhaFoto(null)}>Cancelar</button>
+              <button style={{flex:2,background:"#CC1F1F",color:"#FFFFFF",border:"none",borderRadius:8,padding:"12px",fontWeight:700,cursor:"pointer"}} onClick={confirmarSenhaFoto}>Autorizar</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2190,6 +2240,7 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete,lista,
           isGer={isGer}
           onEditarTrecho={trecho=>setEditandoTrecho({tipo:"servico",trecho})}
           onIrParaOutroServico={()=>setIrParaOutro(true)}
+          usuarios={usuarios}
         />
       )}
 
@@ -2687,12 +2738,9 @@ export default function App(){
     window.history.replaceState({v:"list"},"","");
     function onPop(e){
       const s=e.state;
-      if(!s){setView("list");return;}
-      if(s.v==="list"){setView("list");}
-      else if(s.v==="detail"){setView("detail");}
-      else if(s.v==="form"){setView("form");}
-      else{setView("list");}
-      window.history.pushState(s,"","");
+      const destino=(s&&s.v)||"list";
+      // Apenas muda a view — NÃO empurra novo estado (o browser já voltou)
+      setView(destino==="detail"?"detail":destino==="form"?"form":"list");
     }
     window.addEventListener("popstate",onPop);
     return function(){window.removeEventListener("popstate",onPop);};
