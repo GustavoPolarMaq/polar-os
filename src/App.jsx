@@ -544,7 +544,13 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
         {/* canvas compacto no card */}
         <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:C.surface,marginBottom:12,touchAction:"none",height:160}}>
           <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!autoConfirmar)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
-              onTracoFinalizado={autoConfirmar?cv=>{if(!cv)return;const img=cv.toDataURL("image/png");onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});}:null}/>
+              onTracoFinalizado={autoConfirmar?cv=>{
+                if(!cv)return;
+                const img=cv.toDataURL("image/png");
+                // Só atualizar se a imagem mudou (evita re-renders desnecessários)
+                if(assinatura&&assinatura.img===img)return;
+                onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});
+              }:null}/>
         </div>
 
         {!somenteLeitura&&!jaAssinado&&(
@@ -700,17 +706,33 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
     onRetorno();
   }
 
+  // flags de autorização de gerente (sem foto)
+  const[autorizouSemFotoAntes,setAutorizouSemFotoAntes]=useState(false);
+  const[autorizouSemFotoDepois,setAutorizouSemFotoDepois]=useState(false);
+
   // Concluído — valida ferramentas + obrigatórios + abre tela gerente
   function handleConcluir(){
     if(!ferrOk())return;
-    // Gerente pode concluir sem foto obrigatória
-    if(!isGer){
-      if(!(os.fotosAntes&&os.fotosAntes.length)){setErrCampo("Adicione pelo menos 1 foto ANTES do serviço.");return;}
-      if(!(os.fotosDepois&&os.fotosDepois.length)){setErrCampo("Adicione pelo menos 1 foto DEPOIS do serviço.");return;}
-      if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Colha a assinatura do cliente antes de concluir.");return;}
+    if(!isGer&&!autorizouSemFotoAntes){
+      if(!(os.fotosAntes&&os.fotosAntes.length)){setErrCampo("sem_foto_antes");return;}
     }
+    if(!isGer&&!autorizouSemFotoDepois){
+      if(!(os.fotosDepois&&os.fotosDepois.length)){setErrCampo("sem_foto_depois");return;}
+    }
+    if(!(os.assinatura&&os.assinatura.img)){setErrCampo("Colha a assinatura do cliente antes de concluir.");return;}
     setErrCampo("");
     onEncerrar();
+  }
+
+  function MsgErroFoto({tipo}){
+    const texto=tipo==="sem_foto_antes"?"Adicione pelo menos 1 foto ANTES do serviço.":"Adicione pelo menos 1 foto DEPOIS do serviço.";
+    const setAutorizar=tipo==="sem_foto_antes"?setAutorizouSemFotoAntes:setAutorizouSemFotoDepois;
+    return(
+      <div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>
+        ⚠ {texto}
+        {isGer&&<span style={{marginLeft:8,fontSize:12,color:"#1565C0",cursor:"pointer",textDecoration:"underline",fontWeight:400}} onClick={()=>{setAutorizar(true);setErrCampo("");}}>autorizar sem foto</span>}
+      </div>
+    );
   }
 
   function handleSaida(){
@@ -737,8 +759,8 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
             return(
               <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:ab?cor+"11":"#F7F6F4",border:"1px solid "+(ab?cor:"#E0DEDB"),borderRadius:8,marginBottom:6,flexWrap:"wrap"}}>
                 <div style={{fontSize:11,color:C.gray,fontWeight:700,minWidth:22}}>#{i+1}</div>
-                <div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Saída </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.saidaLoja||d.saida)}</span></div>
-                {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
+                <div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Saída </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtDH(d.saidaLoja||d.saida)}</span></div>
+                {d.retorno?<div style={{flex:1}}><span style={{fontSize:11,color:C.gray}}>Retorno </span><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13}}>{fmtDH(d.chegadaLoja||d.retorno)}</span></div>:<div style={{flex:1,fontSize:12,color:cor,fontWeight:600}}>Em campo...</div>}
                 {dur!=null&&<div style={{fontFamily:"monospace",fontSize:13,color:cor,fontWeight:700}}>{fmtMin(dur)}</div>}
                 {isGer&&onEditarTrecho&&(
                   <button style={{background:"#1565C0",border:"none",color:"#FFFFFF",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0}} onClick={()=>onEditarTrecho(d)}>
@@ -782,7 +804,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
       )}
 
       {/* ── C-G: Execução ── */}
-      {execucaoInline&&emAndamento&&(
+      {execucaoInline&&trechoAberto&&trechoAberto.chegadaLocal&&(
         <div style={{borderTop:"2px dashed "+cor+"55",paddingTop:16,marginTop:8}}>
           {/* Barra progresso */}
           <div style={{display:"flex",gap:3,marginBottom:16}}>
@@ -899,7 +921,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
       {chegouNaLoja&&(
         <div style={{borderTop:"2px dashed "+C.green+"55",paddingTop:16,marginTop:8}}>
           <div style={{fontSize:14,color:C.green,fontWeight:700,textAlign:"center",marginBottom:16}}>🏠 Chegou na loja!</div>
-          {errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>}
+          {(errCampo==="sem_foto_antes"||errCampo==="sem_foto_depois")?<MsgErroFoto tipo={errCampo}/>:(errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>)}
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
             <button style={{...btnP,padding:"16px",fontSize:15,fontWeight:700}} onClick={handleSaida}>
               🛒 Saí da loja novamente
@@ -2627,10 +2649,13 @@ export default function App(){
   const[usuario,setUsuario]=useState(null);
   const[tab,setTab]=useState("os");
   const[view,setView]=useState("list");
-
-  function setViewNav(v){setView(v);}
-  const[lista,setLista]=useState([]);
   const[cur,setCur]=useState(null);
+
+  function setViewNav(v){
+    window.history.pushState({v:v},"","");
+    setView(v);
+  }
+  const[lista,setLista]=useState([]);
   const[editMode,setEditMode]=useState(false);
   const[cfg,setCfg]=useState(CONFIG_PADRAO);
   const[usuarios,setUsuarios]=useState(USUARIOS_PADRAO);
@@ -2642,6 +2667,22 @@ export default function App(){
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
   },[]);
   const [syncErr,setSyncErr]=useState(false);
+
+  // Botão voltar do celular
+  useEffect(()=>{
+    window.history.replaceState({v:"list"},"","");
+    function onPop(e){
+      const s=e.state;
+      if(!s){setView("list");return;}
+      if(s.v==="list"){setView("list");}
+      else if(s.v==="detail"){setView("detail");}
+      else if(s.v==="form"){setView("form");}
+      else{setView("list");}
+      window.history.pushState(s,"","");
+    }
+    window.addEventListener("popstate",onPop);
+    return function(){window.removeEventListener("popstate",onPop);};
+  },[]);
   async function saveList(l,osSalva){
     setLista(l);
     // Salva local imediatamente
