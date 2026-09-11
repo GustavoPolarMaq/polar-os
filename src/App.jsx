@@ -415,7 +415,13 @@ function CanvasAssinatura({canvasRef,somenteLeitura,temTraco,setTemTraco,jaAssin
   }
   function iniciar(e){if(somenteLeitura)return;e.preventDefault();const cv=canvasRef.current;const p=getPos(e,cv);cv.getContext("2d").beginPath();cv.getContext("2d").moveTo(p.x,p.y);setDesenhando(true);}
   function mover(e){if(!desenhando||somenteLeitura)return;e.preventDefault();const cv=canvasRef.current;const ctx=cv.getContext("2d");const p=getPos(e,cv);ctx.lineWidth=2.5;ctx.lineCap="round";ctx.lineJoin="round";ctx.strokeStyle="#1A1A1A";ctx.lineTo(p.x,p.y);ctx.stroke();if(!temTraco)setTemTraco(true);}
-  function parar(e){if(!desenhando)return;e.preventDefault();setDesenhando(false);if(onTracoFinalizado&&canvasRef.current)onTracoFinalizado(canvasRef.current);}
+  function parar(e){
+    if(!desenhando)return;
+    e.preventDefault();
+    setDesenhando(false);
+    // Ao levantar o dedo/mouse, salvar automaticamente via ref do canvas
+    if(onTracoFinalizado&&canvasRef.current)onTracoFinalizado(canvasRef.current);
+  }
   return(
     <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:"#FFFFFF",touchAction:"none",width:"100%",height:"100%"}}>
       <canvas ref={canvasRef} width={900} height={400}
@@ -548,8 +554,13 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, assinaturaRef 
 
         {/* canvas compacto no card */}
         <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"2px dashed "+(jaAssinado?C.green+"66":C.navyLight),background:C.surface,marginBottom:12,touchAction:"none",height:160}}>
-          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!autoConfirmar)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
-              onTracoFinalizado={null}/>
+          <CanvasAssinatura canvasRef={canvasRef} somenteLeitura={somenteLeitura||(jaAssinado&&!assinaturaRef)} temTraco={temTraco} setTemTraco={setTemTraco} jaAssinado={jaAssinado}
+              onTracoFinalizado={assinaturaRef?cv=>{
+                // Salva no canvas ref para o pai capturar sem causar re-render
+                if(assinaturaRef)assinaturaRef.current=cv;
+                // Também salva via onChange para persistir imediatamente
+                if(cv){const img=cv.toDataURL("image/png");onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});}
+              }:null}/>
         </div>
 
         {!somenteLeitura&&!jaAssinado&&(
@@ -558,7 +569,7 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, assinaturaRef 
             <input style={{...inp,marginBottom:12}} value={nomeCliente} onChange={e=>setNomeCliente(e.target.value)} placeholder="Nome legível do cliente"/>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
               <button style={{...btnG,opacity:temTraco?1:0.45,cursor:temTraco?"pointer":"not-allowed"}} onClick={()=>confirmar(canvasRef)}>✓ Confirmar assinatura</button>
-              {!assinatura&&<div style={{fontSize:12,color:C.steel,flex:1,marginLeft:8}}>Ou confirma ao clicar em "Saí do local"</div>}
+              {assinaturaRef&&<div style={{fontSize:12,color:C.steel,flex:1,marginLeft:8}}>Salvo automaticamente ao avançar</div>}
               <button style={btnS} onClick={limpar}>🗑 Limpar</button>
             </div>
           </>
@@ -2735,12 +2746,32 @@ export default function App(){
 
   // Botão voltar do celular
   useEffect(()=>{
-    window.history.replaceState({v:"list"},"","");
+    // Empurra estado sentinela + list para bloquear saída do site
+    window.history.replaceState({v:"sentinela"},"","");
+    window.history.pushState({v:"list"},"","");
     function onPop(e){
       const s=e.state;
-      const destino=(s&&s.v)||"list";
-      // Apenas muda a view — NÃO empurra novo estado (o browser já voltou)
-      setView(destino==="detail"?"detail":destino==="form"?"form":"list");
+      const v=(s&&s.v)||"sentinela";
+      if(v==="sentinela"){
+        // Usuário tentou sair do app — fazer logout e empurrar de volta
+        window.history.pushState({v:"list"},"","");
+        setUsuario(null);
+        setView("list");
+        return;
+      }
+      if(v==="list"){
+        // Está na lista — voltar aqui significa logout ou fechar detalhe
+        if(view==="detail"||view==="form"){
+          setView("list");
+        } else {
+          // Na lista de OS — fazer logout ao tentar voltar
+          window.history.pushState({v:"list"},"","");
+          setUsuario(null);
+          setView("list");
+        }
+        return;
+      }
+      setView(v==="detail"?"detail":v==="form"?"form":"list");
     }
     window.addEventListener("popstate",onPop);
     return function(){window.removeEventListener("popstate",onPop);};
