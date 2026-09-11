@@ -438,8 +438,11 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
   const [nomeCliente, setNomeCliente] = useState((assinatura&&assinatura.nome)||"");
   const [fullscreen, setFullscreen] = useState(false);
 
+  const jaCarregou = useRef(false);
   useEffect(() => {
-    if ((assinatura&&assinatura.img) && canvasRef.current) {
+    // Carrega assinatura existente no canvas apenas uma vez na montagem
+    if(!jaCarregou.current && (assinatura&&assinatura.img) && canvasRef.current) {
+      jaCarregou.current = true;
       const img = new Image();
       img.onload = () => {
         const cv = canvasRef.current;
@@ -547,8 +550,6 @@ function PainelAssinatura({ assinatura, onChange, somenteLeitura, autoConfirmar 
               onTracoFinalizado={autoConfirmar?cv=>{
                 if(!cv)return;
                 const img=cv.toDataURL("image/png");
-                // Só atualizar se a imagem mudou (evita re-renders desnecessários)
-                if(assinatura&&assinatura.img===img)return;
                 onChange({img,nome:nomeCliente.trim(),ts:new Date().toISOString()});
               }:null}/>
         </div>
@@ -817,8 +818,13 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {etapa===0&&(
             <div>
               <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
-              {(os.fotosAntes||[]).length>0&&(
-                <div style={{fontSize:12,color:C.steel,marginBottom:8}}>✓ {os.fotosAntes.length} foto(s) já adicionada(s) antes de sair da loja.</div>
+              {(os.fotosAntes||[]).length===0&&isGer&&(
+                <div style={{fontSize:12,color:"#888",marginBottom:8}}>
+                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>setAutorizouSemFotoAntes(true)}>Autorizar sem foto ANTES</span>
+                </div>
+              )}
+              {autorizouSemFotoAntes&&(os.fotosAntes||[]).length===0&&(
+                <div style={{fontSize:12,color:"#2E7D32",marginBottom:8,fontWeight:600}}>✓ Gerente autorizou sem foto ANTES</div>
               )}
               <button style={{...btnP,width:"100%",padding:"14px",fontWeight:700}} onClick={()=>setEtapa(1)}>Avançar →</button>
             </div>
@@ -853,7 +859,15 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {etapa===3&&(
             <div>
               <PainelMidia titulo="Fotos — DEPOIS do serviço" cor={C.green} obrigatorio={true} itens={os.fotosDepois||[]} onChange={v=>upOS("fotosDepois",v)} somenteLeitura={false}/>
-              <div style={{display:"flex",gap:10}}>
+              {(os.fotosDepois||[]).length===0&&isGer&&(
+                <div style={{fontSize:12,color:"#888",marginTop:8}}>
+                  Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>setAutorizouSemFotoDepois(true)}>Autorizar sem foto DEPOIS</span>
+                </div>
+              )}
+              {autorizouSemFotoDepois&&(os.fotosDepois||[]).length===0&&(
+                <div style={{fontSize:12,color:"#2E7D32",marginTop:4,fontWeight:600}}>✓ Gerente autorizou sem foto DEPOIS</div>
+              )}
+              <div style={{display:"flex",gap:10,marginTop:8}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(2)}>← Voltar</button>
                 <button style={{...btnP,flex:2,padding:"13px",fontWeight:700}} onClick={()=>setEtapa(4)}>Avançar →</button>
               </div>
@@ -880,7 +894,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* H — Assinatura */}
           {etapa===5&&(
             <div>
-              <PainelAssinatura assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false} autoConfirmar={true}/>
+              <PainelAssinatura key="assinatura-os" assinatura={os.assinatura||null} onChange={v=>upOS("assinatura",v)} somenteLeitura={false} autoConfirmar={true}/>
               {errCampo&&<div style={{padding:"10px 14px",background:"#FFEBEE",borderRadius:8,color:"#B71C1C",fontSize:13,fontWeight:600,marginBottom:12,border:"1px solid #FFCDD2"}}>⚠ {errCampo}</div>}
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(4)}>← Voltar</button>
