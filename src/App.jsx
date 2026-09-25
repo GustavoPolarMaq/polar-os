@@ -248,36 +248,68 @@ async function loadAllOS(){
         // Sincronizar versão mais recente de volta ao Firebase
         saveOSDoc(os).catch(e=>console.error("sync local->firebase:",e));
       } else if(fb){
-        // Firebase é mais recente — mas verificar se tem fotos como placeholder [local]
-        // Se sim, restaurar fotos do local para não perder mídias
+        // Firebase é mais recente — mas SEMPRE verificar se tem fotos como placeholder [local]
+        // O Firebase pode ter savedAt mais recente mas conter placeholders (salvos pelo Bug 3)
         const camposMidia=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
         let precisaMerge=false;
         const fbMerged={...fb};
         for(const campo of camposMidia){
           if(Array.isArray(fb[campo])&&fb[campo].some(f=>f.src==='[local]')){
-            // Firebase tem placeholder — restaurar do local se disponível
+            // Firebase tem placeholder — restaurar do local se disponível e tiver fotos reais
             const localCampo=os[campo];
-            if(Array.isArray(localCampo)&&localCampo.length>0){
+            if(Array.isArray(localCampo)&&localCampo.length>0&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
               fbMerged[campo]=localCampo;
               precisaMerge=true;
+              console.log("loadAllOS: restaurando campo",campo,"da OS",os.numero,"("+localCampo.length+" fotos)");
             }
           } else if(fb[campo]==='[local]'&&os[campo]&&os[campo]!=='[local]'){
             fbMerged[campo]=os[campo];
             precisaMerge=true;
           }
         }
+        // Também verificar: mesmo sem placeholder no FB, se local tem fotos e FB não tem
+        for(const campo of camposMidia){
+          if(!precisaMerge||!fbMerged[campo]||fbMerged[campo].length===0){
+            const localCampo=os[campo];
+            if(Array.isArray(localCampo)&&localCampo.length>0&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
+              if(!Array.isArray(fbMerged[campo])||fbMerged[campo].length===0){
+                fbMerged[campo]=localCampo;
+                precisaMerge=true;
+                console.log("loadAllOS: FB sem fotos em",campo,"— restaurando do local para OS",os.numero);
+              }
+            }
+          }
+        }
         if(precisaMerge){
           merged[os.numero]=fbMerged;
           // Salvar versão completa de volta ao Firebase e localStorage
           saveOSDoc(fbMerged).catch(e=>console.error("merge-midia:",e));
-          console.log("loadAllOS: restaurou mídias do local para OS",os.numero);
+          console.log("loadAllOS: merge concluído para OS",os.numero);
         }
       }
     }
     const result=Object.values(merged);
     // Atualizar localStorage com dados mesclados
-    try{localStorage.setItem("polar_polar_os",JSON.stringify(result));}catch(e){}
-    return result;
+    // IMPORTANTE: só salvar no localStorage se a versão mesclada não contém placeholders [local]
+    // Para cada OS, usar a versão local se ela tiver fotos reais e o merged tiver [local]
+    const camposMidiaFinal=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
+    const resultFinal=result.map(os=>{
+      const localOs=localData.find(l=>l.numero===os.numero);
+      if(!localOs)return os;
+      let osFinal={...os};
+      for(const campo of camposMidiaFinal){
+        const temPlaceholder=Array.isArray(osFinal[campo])&&osFinal[campo].some(f=>f.src==='[local]');
+        if(temPlaceholder&&localOs[campo]){
+          const localCampo=localOs[campo];
+          if(Array.isArray(localCampo)&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
+            osFinal[campo]=localCampo;
+          }
+        }
+      }
+      return osFinal;
+    });
+    try{localStorage.setItem("polar_polar_os",JSON.stringify(resultFinal));}catch(e){}
+    return resultFinal;
   }catch(e){
     console.error("loadAllOS falhou:",e.message);
     return localData.length>0?localData:[];
