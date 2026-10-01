@@ -329,7 +329,8 @@ const btnPu={background:"#F3E5F5",color:"#6A1B9A",border:"1px solid #CE93D8",bor
 const btnT={background:"#E0F2F1",color:"#00695C",border:"1px solid #80CBC4",borderRadius:8,padding:"9px 18px",fontWeight:600,fontSize:13,cursor:"pointer"};
 
 // ── COMPRESSÃO DE IMAGEM ──────────────────────────────────────────────────
-function comprimirImagem(file, maxW=1200, qualidade=0.72) {
+// Comprime imagem com tamanho alvo em bytes (base64). Tenta qualidade decrescente até caber.
+function comprimirImagem(file, opcoes={}) {
   return new Promise((resolve, reject) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo) {
@@ -337,7 +338,6 @@ function comprimirImagem(file, maxW=1200, qualidade=0.72) {
         reject(new Error("Vídeo muito grande (máx 50MB). Grave um vídeo mais curto."));
         return;
       }
-      // Converter para base64 para persistir (inclui .mov, .mp4, etc.)
       const reader2 = new FileReader();
       reader2.onerror = reject;
       reader2.onload = ev => {
@@ -346,19 +346,40 @@ function comprimirImagem(file, maxW=1200, qualidade=0.72) {
       reader2.readAsDataURL(file);
       return;
     }
+    // maxBytes: tamanho máximo desejado para o base64 desta foto (default 120KB em base64 ≈ ~90KB imagem)
+    const maxBytes = opcoes.maxBytes || 120000;
     const reader = new FileReader();
     reader.onerror = reject;
     reader.onload = ev => {
       const img = new Image();
       img.onerror = reject;
       img.onload = () => {
-        const scale = Math.min(1, maxW / Math.max(img.width, img.height));
-        const w = Math.round(img.width * scale);
-        const h = Math.round(img.height * scale);
-        const canvas = document.createElement("canvas");
-        canvas.width = w; canvas.height = h;
-        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        resolve({ tipo:"imagem", nome:file.name, mime:"image/jpeg", src:canvas.toDataURL("image/jpeg", qualidade), tamanho:file.size, ts:new Date().toISOString() });
+        // Tentativas progressivas: primeiro resolve sem reduzir demais
+        // dimensões: começar em 1200, reduzir se necessário
+        const tentativas = [
+          {maxW:1200, q:0.82},
+          {maxW:1200, q:0.65},
+          {maxW:900,  q:0.72},
+          {maxW:900,  q:0.55},
+          {maxW:700,  q:0.65},
+          {maxW:700,  q:0.50},
+          {maxW:500,  q:0.60},
+          {maxW:500,  q:0.45},
+          {maxW:400,  q:0.55},
+        ];
+        let resultado = null;
+        for(const {maxW, q} of tentativas){
+          const scale = Math.min(1, maxW / Math.max(img.width, img.height));
+          const w = Math.round(img.width * scale);
+          const h = Math.round(img.height * scale);
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          const src = canvas.toDataURL("image/jpeg", q);
+          resultado = { tipo:"imagem", nome:file.name, mime:"image/jpeg", src, tamanho:file.size, ts:new Date().toISOString() };
+          if(src.length <= maxBytes) break; // cabe! para aqui
+        }
+        resolve(resultado);
       };
       img.src = ev.target.result;
     };
@@ -367,7 +388,8 @@ function comprimirImagem(file, maxW=1200, qualidade=0.72) {
 }
 
 // ── COMPONENTE: PAINEL DE MÍDIA ───────────────────────────────────────────
-function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura }) {
+// osAtual: objeto OS completo, para calcular orçamento de bytes por foto
+function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura, osAtual }) {
   const [ampliado, setAmpliado] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const inputRef = useRef(null);
@@ -375,10 +397,26 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
     setCarregando(true);
+    // Calcular orçamento disponível por foto
+    // Limite seguro Firestore: 750KB total para mídias (deixar 50KB para dados textuais)
+    const LIMITE_MIDIA_BYTES = 750000;
+    // Estimar tamanho atual da OS sem as fotos deste painel
+    let bytesOsBase = 0;
+    if(osAtual){
+      const osSemEstePainel = {...osAtual};
+      // Calcular tamanho dos outros campos de mídia (sem este painel)
+      bytesOsBase = JSON.stringify(osSemEstePainel).length;
+    }
+    const bytesDisponiveis = Math.max(LIMITE_MIDIA_BYTES - bytesOsBase, 50000);
+    const totalFotosFuturas = itens.filter(i=>i.src!=='[local]').length + Array.from(files).length;
+    const maxBytesPorFoto = Math.floor(bytesDisponiveis / Math.max(totalFotosFuturas, 1));
+    // Mínimo de 40KB e máximo de 150KB por foto
+    const maxBytes = Math.min(150000, Math.max(40000, maxBytesPorFoto));
+    console.log("handleFiles: orçamento por foto =", Math.round(maxBytes/1024)+"KB ("+Array.from(files).length+" novas, "+itens.length+" existentes)");
     const novos = [];
     for (const f of Array.from(files)) {
       try {
-        const item = await comprimirImagem(f);
+        const item = await comprimirImagem(f, {maxBytes});
         novos.push({ ...item, id: Date.now() + Math.random() });
       } catch (e) { console.error("Erro ao processar arquivo", e); }
     }
@@ -947,7 +985,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* C — Fotos ANTES */}
           {etapa===0&&(
             <div>
-              <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false}/>
+              <PainelMidia titulo="Fotos — ANTES do serviço" cor={C.steel} obrigatorio={true} itens={os.fotosAntes||[]} onChange={v=>upOS("fotosAntes",v)} somenteLeitura={false} osAtual={os}/>
               {(os.fotosAntes||[]).length===0&&!autorizouSemFotoAntes&&(
                 <div style={{fontSize:12,color:"#888",marginBottom:8}}>
                   Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>tentarAutorizarSemFoto("antes")}>Autorizar sem foto ANTES</span>
@@ -963,7 +1001,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* D — Fotos DURANTE */}
           {etapa===1&&(
             <div>
-              <PainelMidia titulo="Fotos — DURANTE o serviço" cor={C.green} obrigatorio={false} itens={os.fotosDurante||[]} onChange={v=>upOS("fotosDurante",v)} somenteLeitura={false}/>
+              <PainelMidia titulo="Fotos — DURANTE o serviço" cor={C.green} obrigatorio={false} itens={os.fotosDurante||[]} onChange={v=>upOS("fotosDurante",v)} somenteLeitura={false} osAtual={os}/>
               <div style={{display:"flex",gap:10}}>
                 <button style={{...btnS,flex:1,padding:"13px"}} onClick={()=>setEtapa(0)}>← Voltar</button>
                 <button style={{...btnP,flex:2,padding:"13px",fontWeight:700}} onClick={()=>setEtapa(2)}>Avançar →</button>
@@ -988,7 +1026,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
           {/* F — Fotos DEPOIS */}
           {etapa===3&&(
             <div>
-              <PainelMidia titulo="Fotos — DEPOIS do serviço" cor={C.green} obrigatorio={true} itens={os.fotosDepois||[]} onChange={v=>upOS("fotosDepois",v)} somenteLeitura={false}/>
+              <PainelMidia titulo="Fotos — DEPOIS do serviço" cor={C.green} obrigatorio={true} itens={os.fotosDepois||[]} onChange={v=>upOS("fotosDepois",v)} somenteLeitura={false} osAtual={os}/>
               {(os.fotosDepois||[]).length===0&&!autorizouSemFotoDepois&&(
                 <div style={{fontSize:12,color:"#888",marginTop:8}}>
                   Sem foto? <span style={{color:"#1565C0",cursor:"pointer",textDecoration:"underline"}} onClick={()=>tentarAutorizarSemFoto("depois")}>Autorizar sem foto DEPOIS</span>
@@ -1545,11 +1583,11 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
           <textarea style={{...inp,minHeight:60,resize:"vertical"}} value={os.obsExec} onChange={e=>s("obsExec",e.target.value)} placeholder="Situações relevantes"/>
         </div>
         <PainelMidia titulo="Fotos / Vídeos — ANTES do serviço" cor={C.steel} obrigatorio={true}
-          itens={os.fotosAntes||[]} onChange={v=>s("fotosAntes",v)} somenteLeitura={false}/>
+          itens={os.fotosAntes||[]} onChange={v=>s("fotosAntes",v)} somenteLeitura={false} osAtual={os}/>
         <PainelMidia titulo="Fotos / Vídeos — DURANTE o serviço" cor={C.amber} obrigatorio={false}
-          itens={os.fotosDurante||[]} onChange={v=>s("fotosDurante",v)} somenteLeitura={false}/>
+          itens={os.fotosDurante||[]} onChange={v=>s("fotosDurante",v)} somenteLeitura={false} osAtual={os}/>
         <PainelMidia titulo="Fotos / Vídeos — DEPOIS do serviço" cor={C.green} obrigatorio={true}
-          itens={os.fotosDepois||[]} onChange={v=>s("fotosDepois",v)} somenteLeitura={false}/>
+          itens={os.fotosDepois||[]} onChange={v=>s("fotosDepois",v)} somenteLeitura={false} osAtual={os}/>
         <ChecklistFerramentas ferramentasOS={os.ferramentasOS||[]} onChange={v=>s("ferramentasOS",v)} somenteLeitura={false}/>
         <PainelAssinatura
           assinatura={os.assinatura||null}
