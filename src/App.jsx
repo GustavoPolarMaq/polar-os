@@ -207,14 +207,41 @@ async function saveOSDoc(os){
 }
 
 // Carrega todas as OS do Firestore (coleção individual)
+// Retorna true se o campo de mídia tem pelo menos 1 foto real (não placeholder)
+function temFotosReais(campo){
+  if(!campo)return false;
+  if(typeof campo==='string')return campo!=='[local]'&&campo.length>100;
+  if(Array.isArray(campo))return campo.some(f=>f&&f.src&&f.src!=='[local]'&&f.src.length>100);
+  return false;
+}
+// Merge de mídias: prefere sempre a versão com fotos reais
+function mergeOSMidias(base, local){
+  const campos=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
+  const resultado={...base};
+  for(const campo of campos){
+    const baseTem=temFotosReais(base[campo]);
+    const localTem=temFotosReais(local&&local[campo]);
+    if(!baseTem&&localTem){
+      resultado[campo]=local[campo];
+    }
+  }
+  return resultado;
+}
+
 async function loadAllOS(){
   const db=getDb();
-  // Carregar localStorage sempre (dados locais mais recentes do dispositivo)
+  // Carregar localStorage sempre — é a fonte de verdade do dispositivo
   let localData=[];
   try{
     const v=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
     if(v)localData=JSON.parse(v);
   }catch(e){}
+
+  // Fazer backup de segurança do local antes de qualquer merge
+  // Nunca perder dados que estão no dispositivo
+  if(localData.length>0){
+    try{localStorage.setItem("polar_polar_os_backup",JSON.stringify(localData));}catch(e){}
+  }
 
   if(!db)return localData;
 
@@ -228,90 +255,70 @@ async function loadAllOS(){
         for(const os of old)await saveOSDoc(os);
         return old;
       }
-      // Retornar local se tiver
       return localData.length>0?localData:[];
     }
 
     const firebaseData=snap.docs.map(d=>d.data());
 
-    // Mesclar: para cada OS, usar a versão mais recente entre Firebase e local
+    // Construir mapa indexado por numero
+    const localMap={};
+    for(const os of localData){if(os.numero)localMap[os.numero]=os;}
+    const fbMap={};
+    for(const os of firebaseData){if(os.numero)fbMap[os.numero]=os;}
+
+    // Numeros únicos de ambas as fontes
+    const todos=new Set([...Object.keys(localMap),...Object.keys(fbMap)]);
     const merged={};
-    for(const os of firebaseData){
-      merged[os.numero]=os;
-    }
-    for(const os of localData){
-      if(!os.numero)continue;
-      const fb=merged[os.numero];
-      // Usar local se for mais recente que o Firebase
-      if(!fb||(os.savedAt&&fb.savedAt&&os.savedAt>fb.savedAt)){
-        merged[os.numero]=os;
-        // Sincronizar versão mais recente de volta ao Firebase
-        saveOSDoc(os).catch(e=>console.error("sync local->firebase:",e));
-      } else if(fb){
-        // Firebase é mais recente — mas SEMPRE verificar se tem fotos como placeholder [local]
-        // O Firebase pode ter savedAt mais recente mas conter placeholders (salvos pelo Bug 3)
-        const camposMidia=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
-        let precisaMerge=false;
-        const fbMerged={...fb};
-        for(const campo of camposMidia){
-          if(Array.isArray(fb[campo])&&fb[campo].some(f=>f.src==='[local]')){
-            // Firebase tem placeholder — restaurar do local se disponível e tiver fotos reais
-            const localCampo=os[campo];
-            if(Array.isArray(localCampo)&&localCampo.length>0&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
-              fbMerged[campo]=localCampo;
-              precisaMerge=true;
-              console.log("loadAllOS: restaurando campo",campo,"da OS",os.numero,"("+localCampo.length+" fotos)");
-            }
-          } else if(fb[campo]==='[local]'&&os[campo]&&os[campo]!=='[local]'){
-            fbMerged[campo]=os[campo];
-            precisaMerge=true;
-          }
-        }
-        // Também verificar: mesmo sem placeholder no FB, se local tem fotos e FB não tem
-        for(const campo of camposMidia){
-          if(!precisaMerge||!fbMerged[campo]||fbMerged[campo].length===0){
-            const localCampo=os[campo];
-            if(Array.isArray(localCampo)&&localCampo.length>0&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
-              if(!Array.isArray(fbMerged[campo])||fbMerged[campo].length===0){
-                fbMerged[campo]=localCampo;
-                precisaMerge=true;
-                console.log("loadAllOS: FB sem fotos em",campo,"— restaurando do local para OS",os.numero);
-              }
-            }
-          }
-        }
-        if(precisaMerge){
-          merged[os.numero]=fbMerged;
-          // Salvar versão completa de volta ao Firebase e localStorage
-          saveOSDoc(fbMerged).catch(e=>console.error("merge-midia:",e));
-          console.log("loadAllOS: merge concluído para OS",os.numero);
+
+    for(const num of todos){
+      const local=localMap[num];
+      const fb=fbMap[num];
+
+      if(!fb){
+        // Só existe local — usar local e subir para Firebase
+        merged[num]=local;
+        saveOSDoc(local).catch(e=>console.error("sync local->firebase:",e));
+        continue;
+      }
+      if(!local){
+        // Só existe no Firebase — usar Firebase
+        merged[num]=fb;
+        continue;
+      }
+
+      // Ambos existem: decidir qual é mais recente
+      const localMaisRecente=(local.savedAt&&fb.savedAt&&local.savedAt>fb.savedAt)||(!fb.savedAt&&local.savedAt);
+
+      if(localMaisRecente){
+        // Local é mais recente — mas ainda assim fazer merge de mídias do FB se FB tiver fotos que local não tem
+        merged[num]=mergeOSMidias(local, fb);
+        // Se o local tem fotos reais que o FB não tem → reenviar para o Firebase
+        const versaoParaFB=mergeOSMidias(local, fb);
+        saveOSDoc(versaoParaFB).catch(e=>console.error("sync local->firebase:",e));
+      } else {
+        // Firebase é mais recente — mas NUNCA sobrescrever fotos reais do local com placeholders
+        const fbComFotosLocais=mergeOSMidias(fb, local);
+        merged[num]=fbComFotosLocais;
+        // Se recuperamos fotos do local → regravar no Firebase com dados completos
+        const fbTemPlaceholder=['fotosAntes','fotosDurante','fotosDepois','assinatura'].some(c=>{
+          const campo=fb[c];
+          if(Array.isArray(campo))return campo.some(f=>f&&f.src==='[local]');
+          return campo==='[local]';
+        });
+        if(fbTemPlaceholder&&temFotosReais(local.fotosAntes)||temFotosReais(local.fotosDurante)||temFotosReais(local.fotosDepois)){
+          console.log("loadAllOS: recuperando fotos do local para OS",num);
+          saveOSDoc(fbComFotosLocais).catch(e=>console.error("merge-midia:",e));
         }
       }
     }
-    const result=Object.values(merged);
-    // Atualizar localStorage com dados mesclados
-    // IMPORTANTE: só salvar no localStorage se a versão mesclada não contém placeholders [local]
-    // Para cada OS, usar a versão local se ela tiver fotos reais e o merged tiver [local]
-    const camposMidiaFinal=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
-    const resultFinal=result.map(os=>{
-      const localOs=localData.find(l=>l.numero===os.numero);
-      if(!localOs)return os;
-      let osFinal={...os};
-      for(const campo of camposMidiaFinal){
-        const temPlaceholder=Array.isArray(osFinal[campo])&&osFinal[campo].some(f=>f.src==='[local]');
-        if(temPlaceholder&&localOs[campo]){
-          const localCampo=localOs[campo];
-          if(Array.isArray(localCampo)&&localCampo.some(f=>f.src&&f.src!=='[local]'&&f.src.length>100)){
-            osFinal[campo]=localCampo;
-          }
-        }
-      }
-      return osFinal;
-    });
+
+    const resultFinal=Object.values(merged);
+    // Gravar no localStorage o resultado final — nunca apagar fotos reais
     try{localStorage.setItem("polar_polar_os",JSON.stringify(resultFinal));}catch(e){}
     return resultFinal;
   }catch(e){
     console.error("loadAllOS falhou:",e.message);
+    // Fallback seguro: retornar dados locais intactos
     return localData.length>0?localData:[];
   }
 }
@@ -354,18 +361,19 @@ function comprimirImagem(file, opcoes={}) {
       const img = new Image();
       img.onerror = reject;
       img.onload = () => {
-        // Tentativas progressivas: primeiro resolve sem reduzir demais
-        // dimensões: começar em 1200, reduzir se necessário
+        // Tentativas progressivas: começar em 800px (boa qualidade para campo)
+        // e reduzir até caber no orçamento de bytes
         const tentativas = [
-          {maxW:1200, q:0.82},
-          {maxW:1200, q:0.65},
-          {maxW:900,  q:0.72},
-          {maxW:900,  q:0.55},
-          {maxW:700,  q:0.65},
-          {maxW:700,  q:0.50},
+          {maxW:800,  q:0.80},
+          {maxW:800,  q:0.65},
+          {maxW:700,  q:0.70},
+          {maxW:700,  q:0.55},
+          {maxW:600,  q:0.65},
+          {maxW:600,  q:0.50},
           {maxW:500,  q:0.60},
           {maxW:500,  q:0.45},
           {maxW:400,  q:0.55},
+          {maxW:400,  q:0.40},
         ];
         let resultado = null;
         for(const {maxW, q} of tentativas){
@@ -1512,6 +1520,7 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
       nome:"",tel:"",end:"",tipo:SERVICOS[0].n,hEst:SERVICOS[0].h,
       solicit:"",obsOrcamento:"",garantia:"90 dias (mão de obra)",
       valorTotal:0,valorTotalEditado:false,
+      dataAgendamento:"",horaAgendamento:"08:00",
       mats:[],criadoPor:usuario.id,criadoEm:new Date().toISOString(),tecnicosAdicionais:[],
       diag:"",exec:"",obsExec:"",hReal:"",
       iniciadoEm:null,concluidoEm:null,
@@ -1543,7 +1552,41 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
   function upMat(id,k,v){s("mats",os.mats.map(m=>m.id===id?{...m,[k]:v}:m));}
   function rmMat(id){s("mats",os.mats.filter(m=>m.id!==id));}
   const [errFoto, setErrFoto] = useState("");
+  // Gera link para o Google Agenda com os dados da OS
+  function gerarLinkAgenda(osData){
+    if(!osData.dataAgendamento)return null;
+    try{
+      const [ano,mes,dia]=osData.dataAgendamento.split("-").map(Number);
+      const [hora,min]=(osData.horaAgendamento||"08:00").split(":").map(Number);
+      // Data/hora de início
+      const ini=new Date(ano,mes-1,dia,hora,min,0);
+      // Duração = hEst minutos (default 60)
+      const durMin=parseInt(osData.hEst)||60;
+      const fim=new Date(ini.getTime()+durMin*60000);
+      function fmt(d){
+        return d.getFullYear()+
+          String(d.getMonth()+1).padStart(2,"0")+
+          String(d.getDate()).padStart(2,"0")+"T"+
+          String(d.getHours()).padStart(2,"0")+
+          String(d.getMinutes()).padStart(2,"0")+"00";
+      }
+      const titulo=encodeURIComponent("OS Polar: "+osData.tipo+" — "+(osData.nome||"Cliente"));
+      const local=encodeURIComponent(osData.end||"");
+      const descr=encodeURIComponent(
+        (osData.solicit?"Serviço: "+osData.solicit+"\n":"")+
+        (osData.tel?"Telefone: "+osData.tel+"\n":"")+
+        "OS: "+(osData.numero||"")
+      );
+      return "https://calendar.google.com/calendar/render?action=TEMPLATE"+
+        "&text="+titulo+
+        "&dates="+fmt(ini)+"/"+fmt(fim)+
+        "&location="+local+
+        "&details="+descr+
+        "&sf=true&output=xml";
+    }catch(e){return null;}
+  }
   async function salvar(sf){
+    if(!init&&!os.dataAgendamento){setErrFoto("Informe a data de agendamento do serviço.");return;}
     let numeroFinal=os.numero;
     if(numeroFinal==="gerando..."){numeroFinal=await genNum();}
     onSave({...os,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()});
@@ -1646,6 +1689,32 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
             </select>
           </div>
           <div style={{flex:1,minWidth:100}}><label style={lbl}>Minutos estimados</label><input style={inp} type="number" step="5" min="5" value={os.hEst} readOnly={!isGer&&jaAprovado} onChange={e=>s("hEst",e.target.value)}/></div>
+        </div>
+        {/* Agendamento — campo obrigatório */}
+        <div style={{background:"#FFF8E1",border:"1px solid #FFE082",borderRadius:10,padding:14,marginBottom:14}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#E65100",letterSpacing:1.5,textTransform:"uppercase",marginBottom:10}}>
+            📅 Agendamento {!os.dataAgendamento&&!jaAprovado&&<span style={{color:C.red}}> *</span>}
+          </div>
+          <div style={row}>
+            <div style={{flex:2,minWidth:140}}>
+              <label style={lbl}>Data do serviço <span style={{color:C.red}}>*</span></label>
+              <input style={{...inp,borderColor:(!os.dataAgendamento&&!jaAprovado)?C.red:undefined}} type="date" value={os.dataAgendamento||""} readOnly={!isGer&&jaAprovado} onChange={e=>s("dataAgendamento",e.target.value)}/>
+            </div>
+            <div style={{flex:1,minWidth:100}}>
+              <label style={lbl}>Horário</label>
+              <input style={inp} type="time" value={os.horaAgendamento||"08:00"} readOnly={!isGer&&jaAprovado} onChange={e=>s("horaAgendamento",e.target.value)}/>
+            </div>
+          </div>
+          {os.dataAgendamento&&(()=>{
+            const link=gerarLinkAgenda(os);
+            return link?(
+              <a href={link} target="_blank" rel="noopener noreferrer"
+                style={{display:"inline-flex",alignItems:"center",gap:6,background:"#4285F4",color:"#fff",padding:"8px 14px",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none",marginTop:4}}>
+                <span>📅</span> Adicionar ao Google Agenda
+              </a>
+            ):null;
+          })()}
+          {!os.dataAgendamento&&!jaAprovado&&<div style={{fontSize:11,color:C.red,marginTop:6}}>⚠ Data de agendamento obrigatória</div>}
         </div>
         <label style={lbl}>Descrição do serviço</label>
         <textarea style={{...inp,minHeight:70,resize:"vertical",marginBottom:12}} value={os.solicit} readOnly={!isGer&&jaAprovado} onChange={e=>s("solicit",e.target.value)} placeholder="Escreva o que o cliente precisa da forma que ele descreveu"/>
@@ -2301,6 +2370,30 @@ function Detalhe({os,usuario,cfg,onBack,onEdit,onUpdate,usuarios,onDelete,lista,
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Cliente</div><div style={{fontWeight:600,color:"#FFFFFF"}}>{os.nome||"—"}</div><div style={{fontSize:13,color:"#AAAAAA"}}>{os.tel}</div></div>
           <div><div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>Local</div><div style={{fontSize:13,color:"#FFFFFF"}}>{os.end||"—"}</div></div>
         </div>
+        {/* agendamento */}
+        {os.dataAgendamento&&(()=>{
+          const [ano,mes,dia]=os.dataAgendamento.split("-").map(Number);
+          const dtFmt=dia.toString().padStart(2,"0")+"/"+(mes.toString().padStart(2,"0"))+"/"+ano;
+          const link=(()=>{try{
+            const [h,m]=(os.horaAgendamento||"08:00").split(":").map(Number);
+            const ini=new Date(ano,mes-1,dia,h,m,0);
+            const fim=new Date(ini.getTime()+(parseInt(os.hEst)||60)*60000);
+            function fmt(d){return d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0")+"T"+String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0")+"00";}
+            const titulo=encodeURIComponent("OS Polar: "+os.tipo+" — "+(os.nome||"Cliente"));
+            const local=encodeURIComponent(os.end||"");
+            const descr=encodeURIComponent((os.solicit?"Serviço: "+os.solicit+"\n":"")+(os.tel?"Telefone: "+os.tel+"\n":"")+"OS: "+(os.numero||""));
+            return "https://calendar.google.com/calendar/render?action=TEMPLATE&text="+titulo+"&dates="+fmt(ini)+"/"+fmt(fim)+"&location="+local+"&details="+descr+"&sf=true&output=xml";
+          }catch(e){return null;}})();
+          return(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8,paddingBottom:14,borderBottom:"1px solid #3A3A3A",marginBottom:14}}>
+              <div>
+                <div style={{fontSize:10,color:"#888",textTransform:"uppercase",marginBottom:4,letterSpacing:1}}>📅 Agendamento</div>
+                <div style={{fontWeight:700,color:"#FFE082",fontSize:15}}>{dtFmt} {os.horaAgendamento||"08:00"}</div>
+              </div>
+              {link&&<a href={link} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:5,background:"#4285F4",color:"#fff",padding:"7px 12px",borderRadius:8,fontSize:12,fontWeight:600,textDecoration:"none"}}>📅 Agendar</a>}
+            </div>
+          );
+        })()}
 
         {/* técnicos envolvidos — visível para todos */}
         {(()=>{
