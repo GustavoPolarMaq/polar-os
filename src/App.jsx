@@ -1597,14 +1597,13 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
       const tecnico=usuarios&&usuarios.find&&usuarios.find(u=>u.id===osData.tecnicoAtribuido);
       const nomesTec=[tecnico?tecnico.nome:"—",...((osData.tecnicosAdicionais||[]).map(id=>{const u=usuarios&&usuarios.find&&usuarios.find(x=>x.id===id);return u?u.nome:id;}))].join(", ");
       const embed={
-        title:`📋 OS ${osData.numero||"nova"} — ${osData.cliente||"Cliente não informado"}`,
+        title:`📋 OS ${osData.numero||"nova"} — ${osData.nome||osData.cliente||"Cliente não informado"}`,
         color:0xFFB300,
         fields:[
           {name:"🗓️ Agendamento",value:`${dataFmt} às ${horaFmt}`,inline:true},
           {name:"🔧 Técnico",value:nomesTec||"—",inline:true},
-          {name:"📍 Endereço",value:osData.enderecoServico||osData.endereco||"—",inline:false},
+          {name:"📍 Endereço",value:osData.endereco||osData.enderecoServico||"—",inline:false},
           {name:"🛠️ Descrição do serviço",value:osData.solicit||"—",inline:false},
-          {name:"📊 Status",value:"Agendada",inline:true},
         ],
         footer:{text:"Polar OS • "+new Date().toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"})},
       };
