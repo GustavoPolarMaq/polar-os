@@ -341,16 +341,9 @@ function comprimirImagem(file, opcoes={}) {
   return new Promise((resolve, reject) => {
     const isVideo = file.type.startsWith("video/");
     if (isVideo) {
-      if(file.size > 50 * 1024 * 1024){
-        reject(new Error("Vídeo muito grande (máx 50MB). Grave um vídeo mais curto."));
-        return;
-      }
-      const reader2 = new FileReader();
-      reader2.onerror = reject;
-      reader2.onload = ev => {
-        resolve({ tipo:"video", nome:file.name, mime:file.type||"video/mp4", src:ev.target.result, tamanho:file.size, ts:new Date().toISOString() });
-      };
-      reader2.readAsDataURL(file);
+      // Vídeos NÃO são armazenados no Firestore (excederia o limite de 1MB por documento).
+      // São salvas apenas localmente com src="[local]" e exibidas com ícone informativo.
+      resolve({ tipo:"video", nome:file.name, mime:file.type||"video/mp4", src:"[local]", tamanho:file.size, ts:new Date().toISOString(), localOnly:true });
       return;
     }
     // maxBytes: tamanho máximo desejado para o base64 desta foto (default 120KB em base64 ≈ ~90KB imagem)
@@ -405,31 +398,39 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
   async function handleFiles(files) {
     if (!files || files.length === 0) return;
     setCarregando(true);
-    // Calcular orçamento disponível por foto
-    // Limite seguro Firestore: 750KB total para mídias (deixar 50KB para dados textuais)
-    const LIMITE_MIDIA_BYTES = 750000;
-    // Estimar tamanho atual da OS sem as fotos deste painel
-    let bytesOsBase = 0;
-    if(osAtual){
-      const osSemEstePainel = {...osAtual};
-      // Calcular tamanho dos outros campos de mídia (sem este painel)
-      bytesOsBase = JSON.stringify(osSemEstePainel).length;
+    // Timeout de segurança: se o processamento travar (ex: iOS matar o worker em background),
+    // garante que setCarregando(false) seja chamado depois de 30s.
+    const timeoutId = setTimeout(() => { setCarregando(false); }, 30000);
+    try {
+      // Calcular orçamento disponível por foto
+      // Limite seguro Firestore: 750KB total para mídias (deixar 50KB para dados textuais)
+      const LIMITE_MIDIA_BYTES = 750000;
+      let bytesOsBase = 0;
+      if(osAtual){
+        bytesOsBase = JSON.stringify(osAtual).length;
+      }
+      const bytesDisponiveis = Math.max(LIMITE_MIDIA_BYTES - bytesOsBase, 50000);
+      const totalFotosFuturas = itens.filter(i=>i.src!=='[local]').length + Array.from(files).length;
+      const maxBytesPorFoto = Math.floor(bytesDisponiveis / Math.max(totalFotosFuturas, 1));
+      // Mínimo de 40KB e máximo de 150KB por foto
+      const maxBytes = Math.min(150000, Math.max(40000, maxBytesPorFoto));
+      console.log("handleFiles: orçamento por foto =", Math.round(maxBytes/1024)+"KB ("+Array.from(files).length+" novas, "+itens.length+" existentes)");
+      // Processar e adicionar foto a foto — salvar no localStorage após cada uma
+      // para não perder nada se o técnico sair do app no meio do processo
+      let itensAtuais = [...itens];
+      for (const f of Array.from(files)) {
+        try {
+          const item = await comprimirImagem(f, {maxBytes});
+          const novoItem = { ...item, id: Date.now() + Math.random() };
+          itensAtuais = [...itensAtuais, novoItem];
+          // Notificar pai imediatamente — onChange dispara o auto-save no componente pai
+          onChange(itensAtuais);
+        } catch (e) { console.error("Erro ao processar arquivo", e); }
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      setCarregando(false);
     }
-    const bytesDisponiveis = Math.max(LIMITE_MIDIA_BYTES - bytesOsBase, 50000);
-    const totalFotosFuturas = itens.filter(i=>i.src!=='[local]').length + Array.from(files).length;
-    const maxBytesPorFoto = Math.floor(bytesDisponiveis / Math.max(totalFotosFuturas, 1));
-    // Mínimo de 40KB e máximo de 150KB por foto
-    const maxBytes = Math.min(150000, Math.max(40000, maxBytesPorFoto));
-    console.log("handleFiles: orçamento por foto =", Math.round(maxBytes/1024)+"KB ("+Array.from(files).length+" novas, "+itens.length+" existentes)");
-    const novos = [];
-    for (const f of Array.from(files)) {
-      try {
-        const item = await comprimirImagem(f, {maxBytes});
-        novos.push({ ...item, id: Date.now() + Math.random() });
-      } catch (e) { console.error("Erro ao processar arquivo", e); }
-    }
-    onChange([...itens, ...novos]);
-    setCarregando(false);
   }
 
   function remover(id) { onChange(itens.filter(x => x.id !== id)); }
@@ -455,8 +456,8 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
             <div key={item.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", background: C.surface, border: `1px solid ${C.navyLight}`, aspectRatio: "1" }}>
               {item.src === "[local]" ? (
                 <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 6, background: C.surface }}>
-                  <div style={{ fontSize: 28 }}>📷</div>
-                  <div style={{ fontSize: 8, color: C.gray, marginTop: 4, textAlign: "center", lineHeight: 1.3 }}>foto salva neste dispositivo</div>
+                  <div style={{ fontSize: 28 }}>{item.tipo==="video"?"🎬":"📷"}</div>
+                  <div style={{ fontSize: 8, color: C.gray, marginTop: 4, textAlign: "center", lineHeight: 1.3 }}>{item.tipo==="video"?"vídeo neste dispositivo":"foto neste dispositivo"}</div>
                 </div>
               ) : item.tipo === "imagem" ? (
                 <img src={item.src} alt={item.nome}
@@ -512,9 +513,13 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.92)", zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           {ampliado.src === "[local]" ? (
             <div style={{ textAlign: "center", color: "#fff", padding: 32 }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 56, marginBottom: 16 }}>📷</div>
+              <div style={{ fontSize: 56, marginBottom: 16 }}>{ampliado.tipo==="video"?"🎬":"📷"}</div>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{ampliado.nome}</div>
-              <div style={{ fontSize: 13, color: "#ccc", maxWidth: 280, lineHeight: 1.5 }}>Esta foto está salva apenas neste dispositivo e não pôde ser enviada ao servidor por limite de tamanho.</div>
+              <div style={{ fontSize: 13, color: "#ccc", maxWidth: 300, lineHeight: 1.5 }}>
+                {ampliado.tipo==="video"
+                  ? "Vídeos são salvos apenas neste dispositivo. Por limitação técnica, vídeos não são enviados ao servidor — apenas fotos são sincronizadas entre dispositivos."
+                  : "Esta foto está salva apenas neste dispositivo e não pôde ser enviada ao servidor por limite de tamanho."}
+              </div>
             </div>
           ) : ampliado.tipo === "imagem" ? (
             <img src={ampliado.src} alt={ampliado.nome}
@@ -826,7 +831,21 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
   const [etapa,setEtapa]       = useState(0);
   const [errCampo,setErrCampo] = useState("");
 
-  function upOS(k,v){if(onUpdateOS)onUpdateOS({...os,[k]:v,savedAt:new Date().toISOString()});}
+  function upOS(k,v){
+    const osAtualizada={...os,[k]:v,savedAt:new Date().toISOString()};
+    if(onUpdateOS)onUpdateOS(osAtualizada);
+    // Auto-save imediato no localStorage após cada mudança (fotos, assinatura, etc.)
+    // Protege contra perda de dados se o técnico sair do app antes de salvar
+    try{
+      const localRaw=localStorage.getItem("polar_polar_os")||localStorage.getItem("polar_os");
+      if(localRaw){
+        const localData=JSON.parse(localRaw);
+        const idx=localData.findIndex(x=>x.numero===osAtualizada.numero);
+        if(idx>=0){localData[idx]=osAtualizada;}else{localData.unshift(osAtualizada);}
+        localStorage.setItem("polar_polar_os",JSON.stringify(localData));
+      }
+    }catch(e){console.warn("auto-save local:",e);}
+  }
 
   function ferrOk(){
     const pend=(os.ferramentasOS||[]).filter(f=>!f.devolvido);
@@ -1420,6 +1439,21 @@ function Configuracoes({cfg,onSave}){
       </div>
     </div>
     <div style={card}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#5865F2",textTransform:"uppercase",marginBottom:16}}>🔔 Notificações via Discord</div>
+      <div style={{fontSize:13,color:C.gray,marginBottom:14,lineHeight:1.6}}>
+        Cole abaixo a URL do Webhook do Discord. Para criar: no servidor Discord → canal desejado → Configurações → Integrações → Webhooks → Criar Webhook → Copiar URL.
+      </div>
+      <label style={lbl}>URL do Webhook Discord</label>
+      <input style={inp} type="url" value={form.discordWebhookUrl||""}
+        onChange={e=>s("discordWebhookUrl",e.target.value)}
+        placeholder="https://discord.com/api/webhooks/..."/>
+      <div style={{fontSize:11,color:C.gray,marginTop:4}}>Quando preenchida, uma mensagem é enviada automaticamente ao criar uma OS com agendamento.</div>
+      <div style={{display:"flex",gap:12,marginTop:16,alignItems:"center"}}>
+        <button style={btnP} onClick={salvar}>Salvar configurações</button>
+        {saved&&<span style={{color:C.green,fontSize:13,fontWeight:600}}>✓ Salvo!</span>}
+      </div>
+    </div>
+    <div style={card}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:C.green,textTransform:"uppercase",marginBottom:16}}>💬 Feedback via WhatsApp</div>
       <div style={row}>
         <div style={{flex:1,minWidth:160}}>
@@ -1553,6 +1587,34 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
   function rmMat(id){s("mats",os.mats.filter(m=>m.id!==id));}
   const [errFoto, setErrFoto] = useState("");
   // Gera link para o Google Agenda com os dados da OS
+  async function notificarDiscord(osData){
+    const webhookUrl=cfg&&cfg.discordWebhookUrl;
+    if(!webhookUrl||!webhookUrl.startsWith("https://discord.com/api/webhooks/"))return;
+    try{
+      const [ano,mes,dia]=(osData.dataAgendamento||"").split("-");
+      const dataFmt=osData.dataAgendamento?`${dia}/${mes}/${ano}`:"—";
+      const horaFmt=osData.horaAgendamento||"—";
+      const tecnico=usuarios&&usuarios.find&&usuarios.find(u=>u.id===osData.tecnicoAtribuido);
+      const nomesTec=[tecnico?tecnico.nome:"—",...((osData.tecnicosAdicionais||[]).map(id=>{const u=usuarios&&usuarios.find&&usuarios.find(x=>x.id===id);return u?u.nome:id;}))].join(", ");
+      const embed={
+        title:`📋 OS ${osData.numero||"nova"} — ${osData.cliente||"Cliente não informado"}`,
+        color:0xFFB300,
+        fields:[
+          {name:"🗓️ Agendamento",value:`${dataFmt} às ${horaFmt}`,inline:true},
+          {name:"🔧 Técnico",value:nomesTec||"—",inline:true},
+          {name:"📍 Endereço",value:osData.enderecoServico||osData.endereco||"—",inline:false},
+          {name:"🛠️ Descrição do serviço",value:osData.solicit||"—",inline:false},
+          {name:"📊 Status",value:"Agendada",inline:true},
+        ],
+        footer:{text:"Polar OS • "+new Date().toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"})},
+      };
+      await fetch(webhookUrl,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username:"Polar OS",avatar_url:"https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f9f0.png",embeds:[embed]}),
+      });
+    }catch(e){console.warn("Discord webhook erro:",e);}
+  }
   function gerarLinkAgenda(osData){
     if(!osData.dataAgendamento)return null;
     try{
@@ -1589,7 +1651,12 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
     if(!init&&!os.dataAgendamento){setErrFoto("Informe a data de agendamento do serviço.");return;}
     let numeroFinal=os.numero;
     if(numeroFinal==="gerando..."){numeroFinal=await genNum();}
-    onSave({...os,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()});
+    const osParaSalvar={...os,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()};
+    onSave(osParaSalvar);
+    // Notificar Discord apenas na criação de nova OS com agendamento
+    if(!init&&osParaSalvar.dataAgendamento){
+      notificarDiscord(osParaSalvar);
+    }
   }
   function concluir(){
     if((os.fotosAntes||[]).length===0){setErrFoto("Adicione pelo menos 1 foto ANTES do serviço.");return;}
