@@ -1603,6 +1603,8 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
           {name:"🗓️ Agendamento",value:`${dataFmt} às ${horaFmt}`,inline:true},
           {name:"🔧 Técnico",value:nomesTec||"—",inline:true},
           {name:"📍 Endereço",value:osData.endereco||osData.enderecoServico||"—",inline:false},
+          {name:"🕐 Tempo estimado",value:osData.hEst?osData.hEst+"min":"—",inline:true},
+          {name:"💰 Valor do serviço",value:osData.valorTotal?osData.valorTotal.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"—",inline:true},
           {name:"🛠️ Descrição do serviço",value:osData.solicit||"—",inline:false},
         ],
         footer:{text:"Polar OS • "+new Date().toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"})},
