@@ -1595,14 +1595,14 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
       const dataFmt=osData.dataAgendamento?`${dia}/${mes}/${ano}`:"—";
       const horaFmt=osData.horaAgendamento||"—";
       const tecnico=usuarios&&usuarios.find&&usuarios.find(u=>u.id===osData.tecnicoAtribuido);
-      const nomesTec=[tecnico?tecnico.nome:"—",...((osData.tecnicosAdicionais||[]).map(id=>{const u=usuarios&&usuarios.find&&usuarios.find(x=>x.id===id);return u?u.nome:id;}))].join(", ");
+      const nomesTec=[tecnico?tecnico.nome:null,...((osData.tecnicosAdicionais||[]).map(id=>{const u=usuarios&&usuarios.find&&usuarios.find(x=>x.id===id);return u?u.nome:id;}))].filter(Boolean).join(", ")||"—";
       const embed={
         title:`📋 OS ${osData.numero||"nova"} — ${osData.nome||osData.cliente||"Cliente não informado"}`,
         color:0xFFB300,
         fields:[
           {name:"🗓️ Agendamento",value:`${dataFmt} às ${horaFmt}`,inline:true},
-          {name:"🔧 Técnico",value:nomesTec||"—",inline:true},
-          {name:"📍 Endereço",value:osData.endereco||osData.enderecoServico||"—",inline:false},
+          {name:"🔧 Técnico",value:nomesTec,inline:true},
+          {name:"📍 Endereço",value:osData.end||osData.endereco||osData.enderecoServico||"—",inline:false},
           {name:"🕐 Tempo estimado",value:osData.hEst?osData.hEst+"min":"—",inline:true},
           {name:"💰 Valor do serviço",value:osData.valorTotal?osData.valorTotal.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}):"—",inline:true},
           {name:"🛠️ Descrição do serviço",value:osData.solicit||"—",inline:false},
