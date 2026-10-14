@@ -173,6 +173,127 @@ async function storageSet(k,v){
   }
 }
 
+// ── Discord: envio robusto (independe do cache de config do aparelho + fila offline) ──
+const DISCORD_FILA_KEY="polar_discord_fila";
+function webhookValido(u){return typeof u==="string"&&/^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(u.trim());}
+// canal: "agenda" (padrão) ou "posvenda" (usa discordWebhookPosVenda; se vazio, cai no webhook padrão)
+function escolherWebhook(c,canal){
+  if(!c)return null;
+  if(canal==="posvenda"&&webhookValido(c.discordWebhookPosVenda))return c.discordWebhookPosVenda.trim();
+  if(webhookValido(c.discordWebhookUrl))return c.discordWebhookUrl.trim();
+  return null;
+}
+async function obterWebhookDiscord(cfgAtual,canal){
+  // 1) Sempre tenta buscar a config mais recente no Firestore (o celular pode estar com config antiga em memória)
+  try{
+    const db=getDb();
+    if(db){
+      const doc=await Promise.race([
+        db.collection("polar_dados").doc("polar_cfg").get(),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),8000))
+      ]);
+      const u=doc.exists&&escolherWebhook(doc.data().valor,canal);
+      if(u)return u;
+    }
+  }catch(e){console.warn("Discord: falha ao ler config remota",e);}
+  // 2) Config em memória  3) Config salva no aparelho
+  const m=escolherWebhook(cfgAtual,canal);
+  if(m)return m;
+  try{const c=JSON.parse(localStorage.getItem("polar_polar_cfg")||"null");const l=escolherWebhook(c,canal);if(l)return l;}catch(e){}
+  return null;
+}
+function lerFilaDiscord(){try{return JSON.parse(localStorage.getItem(DISCORD_FILA_KEY)||"[]");}catch(e){return [];}}
+function gravarFilaDiscord(f){try{localStorage.setItem(DISCORD_FILA_KEY,JSON.stringify(f.slice(-30)));}catch(e){}}
+async function postDiscord(url,payload){
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload),keepalive:true});
+  if(!r.ok&&r.status!==204)throw new Error("HTTP "+r.status);
+}
+async function enviarDiscord(payload,cfgAtual,canal){
+  const url=await obterWebhookDiscord(cfgAtual,canal);
+  if(!url){
+    // Sem webhook acessível agora (ex.: sem internet) — guarda para reenviar depois
+    gravarFilaDiscord([...lerFilaDiscord(),{payload,canal,ts:Date.now()}]);
+    return false;
+  }
+  try{await postDiscord(url,payload);return true;}
+  catch(e){
+    console.warn("Discord: envio falhou, colocado na fila",e);
+    gravarFilaDiscord([...lerFilaDiscord(),{payload,canal,ts:Date.now()}]);
+    return false;
+  }
+}
+let _flushDiscordRodando=false;
+async function reenviarFilaDiscord(cfgAtual){
+  if(_flushDiscordRodando)return;
+  const fila=lerFilaDiscord();
+  if(fila.length===0)return;
+  _flushDiscordRodando=true;
+  try{
+    const urls={};
+    const restantes=[];
+    for(const item of fila){
+      // descarta itens com mais de 7 dias
+      if(Date.now()-(item.ts||0)>7*24*3600*1000)continue;
+      const canal=item.canal||"agenda";
+      if(!(canal in urls))urls[canal]=await obterWebhookDiscord(cfgAtual,canal);
+      if(!urls[canal]){restantes.push(item);continue;}
+      try{await postDiscord(urls[canal],item.payload);}catch(e){restantes.push(item);}
+    }
+    gravarFilaDiscord(restantes);
+  }finally{_flushDiscordRodando=false;}
+}
+
+// ── Pós-venda: pedido de feedback vai para o Discord, escritório envia pelo WhatsApp da Polar ──
+function nomesTecnicosOS(osData,usuarios){
+  const lu=Array.isArray(usuarios)?usuarios:[];
+  const criador=lu.find(u=>u.id===osData.criadoPor);
+  const atribuido=osData.tecnicoAtribuidoNome||((lu.find(u=>u.id===osData.tecnicoAtribuido)||{}).nome);
+  const nomes=[];
+  if(criador&&criador.role==="tecnico")nomes.push(criador.nome);
+  if(atribuido&&!nomes.includes(atribuido))nomes.push(atribuido);
+  (osData.tecnicosAdicionais||[]).forEach(id=>{const u=lu.find(x=>x.id===id);if(u&&!nomes.includes(u.nome))nomes.push(u.nome);});
+  return nomes.join(", ")||"—";
+}
+function montarMsgFeedback(osData,cfgAtual){
+  return ((cfgAtual&&cfgAtual.msgFeedback)||"Olá {nome}! Como foi o serviço?")
+    .split("{nome}").join(osData.nome||"cliente")
+    .split("{servico}").join(osData.tipo||"serviço");
+}
+function linkWhatsAppCliente(osData,msg){
+  let t=(osData.tel||"").replace(/\D/g,"");
+  if(t.length<10)return null;
+  if(!(t.startsWith("55")&&t.length>=12))t="55"+t;
+  return "https://wa.me/"+t+"?text="+encodeURIComponent(msg);
+}
+async function notificarPosVenda(osData,cfgAtual,usuarios){
+  try{
+    const msg=montarMsgFeedback(osData,cfgAtual);
+    const link=linkWhatsAppCliente(osData,msg);
+    const fmt=d=>d.toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo",day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const concl=osData.concluidoEm?new Date(osData.concluidoEm):new Date();
+    const tempoMin=(cfgAtual&&cfgAtual.tempoFeedbackMin)||60;
+    const aPartir=new Date(concl.getTime()+tempoMin*60000);
+    const embed={
+      title:`💬 Pós-venda — OS ${osData.numero||""} — ${osData.nome||"Cliente"}`,
+      color:0x25D366,
+      description:link
+        ?`**[👉 Clique aqui para enviar o feedback pelo WhatsApp](${link})**\nAbra no computador/celular logado no WhatsApp da **Polar Serviços**. Depois de enviar, reaja com ✅ nesta mensagem.`
+        :`⚠️ **Telefone do cliente não cadastrado** — entrar em contato manualmente.`,
+      fields:[
+        {name:"👤 Cliente",value:osData.nome||"—",inline:true},
+        {name:"📞 Telefone",value:osData.tel||"—",inline:true},
+        {name:"🔧 Técnico",value:nomesTecnicosOS(osData,usuarios),inline:true},
+        {name:"✅ Concluída em",value:fmt(concl),inline:true},
+        {name:"⏰ Enviar a partir de",value:fmt(aPartir),inline:true},
+        {name:"🛠️ Serviço",value:(osData.solicit||osData.tipo||"—").slice(0,1000),inline:false},
+        {name:"📝 Mensagem",value:msg.slice(0,1000),inline:false},
+      ],
+      footer:{text:"Polar OS • Pós-venda"},
+    };
+    return await enviarDiscord({username:"Polar OS — Pós-venda",avatar_url:"https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f4ac.png",embeds:[embed]},cfgAtual,"posvenda");
+  }catch(e){console.warn("Pós-venda Discord erro:",e);return false;}
+}
+
 // Salva uma OS individualmente (evita limite de 1MB do Firestore com lista inteira)
 async function saveOSDoc(os){
   const db=getDb();
@@ -1450,6 +1571,11 @@ function Configuracoes({cfg,onSave}){
         onChange={e=>s("discordWebhookUrl",e.target.value)}
         placeholder="https://discord.com/api/webhooks/..."/>
       <div style={{fontSize:11,color:C.gray,marginTop:4}}>Quando preenchida, uma mensagem é enviada automaticamente ao criar uma OS com agendamento.</div>
+      <label style={{...lbl,marginTop:16}}>URL do Webhook — canal de Pós-venda</label>
+      <input style={inp} type="url" value={form.discordWebhookPosVenda||""}
+        onChange={e=>s("discordWebhookPosVenda",e.target.value)}
+        placeholder="https://discord.com/api/webhooks/... (canal #pos-venda)"/>
+      <div style={{fontSize:11,color:C.gray,marginTop:4}}>Ao concluir uma OS, o pedido de feedback cai neste canal com um link pronto para o escritório enviar pelo WhatsApp da Polar Serviços. Se ficar vazio, usa o webhook acima.</div>
       <div style={{display:"flex",gap:12,marginTop:16,alignItems:"center"}}>
         <button style={btnP} onClick={salvar}>Salvar configurações</button>
         {saved&&<span style={{color:C.green,fontSize:13,fontWeight:600}}>✓ Salvo!</span>}
@@ -1462,7 +1588,7 @@ function Configuracoes({cfg,onSave}){
           <label style={lbl}>Enviar feedback após (minutos)</label>
           <input style={inp} type="number" min={5} max={1440} value={form.tempoFeedbackMin||60}
             onChange={e=>s("tempoFeedbackMin",parseInt(e.target.value)||60)}/>
-          <div style={{fontSize:11,color:C.gray,marginTop:4}}>Ex: 60 = 1 hora após o retorno do técnico</div>
+          <div style={{fontSize:11,color:C.gray,marginTop:4}}>Aparece no Discord como "Enviar a partir de" (horário da conclusão + este tempo)</div>
         </div>
       </div>
       <label style={lbl}>Mensagem padrão</label>
@@ -1590,8 +1716,6 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
   const [errFoto, setErrFoto] = useState("");
   // Gera link para o Google Agenda com os dados da OS
   async function notificarDiscord(osData){
-    const webhookUrl=cfg&&cfg.discordWebhookUrl;
-    if(!webhookUrl||!webhookUrl.startsWith("https://discord.com/api/webhooks/"))return;
     try{
       const [ano,mes,dia]=(osData.dataAgendamento||"").split("-");
       const dataFmt=osData.dataAgendamento?`${dia}/${mes}/${ano}`:"—";
@@ -1618,11 +1742,7 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
         ],
         footer:{text:"Polar OS • "+new Date().toLocaleString("pt-BR",{timeZone:"America/Sao_Paulo"})},
       };
-      await fetch(webhookUrl,{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({username:"Polar OS",avatar_url:"https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f9f0.png",embeds:[embed]}),
-      });
+      await enviarDiscord({username:"Polar OS",avatar_url:"https://cdn.jsdelivr.net/npm/emoji-datasource-apple/img/apple/64/1f9f0.png",embeds:[embed]},cfg);
     }catch(e){console.warn("Discord webhook erro:",e);}
   }
   function gerarLinkAgenda(osData){
@@ -1991,20 +2111,11 @@ function TelaConcluidaGerente({os,usuario,usuarios,cfg,onConfirmar,onVoltar}){
 
         {/* Feedback WhatsApp */}
         <div style={{background:"#1A1A1A",borderRadius:14,padding:20,marginBottom:20,border:"1px solid #2A2A2A"}}>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#AAAAAA",textTransform:"uppercase",marginBottom:16}}>💬 Feedback via WhatsApp</div>
-          {os.tel?(
-            <div>
-              <div style={{fontSize:13,color:"#888",marginBottom:12,lineHeight:1.6,background:"#2A2A2A",borderRadius:8,padding:"10px 14px"}}>
-                {((cfg&&cfg.msgFeedback)||"Olá {nome}! Como foi o serviço?").replace("{nome}",os.nome||"cliente").replace("{servico}",os.tipo||"serviço")}
-              </div>
-              <button style={{width:"100%",background:"#25D366",color:"#FFFFFF",border:"none",borderRadius:10,padding:"12px",fontWeight:700,fontSize:14,cursor:"pointer"}}
-                onClick={()=>{const t=(os.tel||"").replace(/\D/g,"");const m=((cfg&&cfg.msgFeedback)||"Olá {nome}! Como foi o serviço?").replace("{nome}",os.nome||"cliente").replace("{servico}",os.tipo||"serviço");window.open("https://wa.me/55"+t+"?text="+encodeURIComponent(m),"_blank");}}>
-                📲 Enviar feedback pelo WhatsApp
-              </button>
-            </div>
-          ):(
-            <div style={{fontSize:13,color:"#666"}}>⚠ Telefone do cliente não cadastrado.</div>
-          )}
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:2,color:"#AAAAAA",textTransform:"uppercase",marginBottom:16}}>💬 Pós-venda</div>
+          <div style={{fontSize:13,color:"#CCCCCC",lineHeight:1.6}}>
+            O pedido de feedback será enviado ao cliente pelo <strong style={{color:"#25D366"}}>WhatsApp da Polar Serviços</strong>, pelo escritório. Ele é encaminhado automaticamente quando o gerente confirmar a conclusão.
+          </div>
+          {!os.tel&&<div style={{fontSize:13,color:"#FFB300",marginTop:10}}>⚠ Telefone do cliente não cadastrado — o escritório será avisado.</div>}
         </div>
 
         {/* Aprovação do gerente */}
@@ -3033,7 +3144,19 @@ export default function App(){
     // Sessão não persistida — login obrigatório a cada acesso
     storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
     storageGet("polar_usuarios").then(u=>{if(u)setUsuarios(u);});
-    storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
+    // Reenvia notificações do Discord que ficaram pendentes (ex.: técnico sem sinal)
+    reenviarFilaDiscord(null);
+    const onOnline=()=>reenviarFilaDiscord(null);
+    const onVisivel=()=>{
+      if(document.visibilityState==="visible"){
+        reenviarFilaDiscord(null);
+        // Recarrega config ao voltar para o app (celular pode ter ficado dias com a aba aberta)
+        storageGet("polar_cfg").then(c=>{if(c)setCfg(c);});
+      }
+    };
+    window.addEventListener("online",onOnline);
+    document.addEventListener("visibilitychange",onVisivel);
+    return()=>{window.removeEventListener("online",onOnline);document.removeEventListener("visibilitychange",onVisivel);};
   },[]);
   const [syncErr,setSyncErr]=useState(false);
 
@@ -3087,8 +3210,20 @@ export default function App(){
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
   function handleLogin(u){setUsuario(u);}
   function handleLogout(){setUsuario(null);setViewNav("list");setTab("os");}
-  function handleSave(os){const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl,os);setCur(os);setViewNav("detail");setTab("os");}
-  function handleUpdate(os){setLista(prev=>{const nl=prev.map(x=>x.numero===os.numero?os:x);saveList(nl,os);return nl;});setCur(os);}
+  // Pós-venda: na primeira vez que a OS vira "concluida", manda o pedido de feedback para o Discord.
+  // Marca posVendaNotificadoEm na própria OS (salva no Firestore) para nunca duplicar, mesmo de outro aparelho.
+  function aplicarPosVenda(os){
+    if(!os||os.status!=="concluida"||os.posVendaNotificadoEm)return os;
+    const anterior=lista.find(x=>x.numero===os.numero);
+    if(anterior&&anterior.posVendaNotificadoEm)return {...os,posVendaNotificadoEm:anterior.posVendaNotificadoEm};
+    // Só dispara na transição para concluída (não em edição de OS antiga já concluída, nem retorno de garantia)
+    if(anterior&&["concluida","em_garantia"].includes(anterior.status))return os;
+    const marcada={...os,posVendaNotificadoEm:new Date().toISOString()};
+    notificarPosVenda(marcada,cfg,usuarios);
+    return marcada;
+  }
+  function handleSave(os0){const os=aplicarPosVenda(os0);const idx=lista.findIndex(x=>x.numero===os.numero);const nl=idx>=0?lista.map((x,i)=>i===idx?os:x):[os,...lista];saveList(nl,os);setCur(os);setViewNav("detail");setTab("os");}
+  function handleUpdate(os0){const os=aplicarPosVenda(os0);setLista(prev=>{const nl=prev.map(x=>x.numero===os.numero?os:x);saveList(nl,os);return nl;});setCur(os);}
   async function handleDelete(numero){
     const nl=lista.filter(x=>x.numero!==numero);
     saveList(nl);
