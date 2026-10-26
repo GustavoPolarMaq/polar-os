@@ -1692,16 +1692,14 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
       assinatura:null,
       ferramentasOS:[],
     };
-    base.valorTotal=calcValorServico(base.hEst,cfg,base.mats);
+    // Valor do serviço é preenchido manualmente pelo técnico (sem precificação automática)
+    base.valorTotal="";
     return base;
   });
 
   function s(k,v){setOs(p=>({...p,[k]:v}));}
-  useEffect(()=>{
-    if(!os.valorTotalEditado&&!jaAprovado){
-      setOs(p=>({...p,valorTotal:calcValorServico(p.hEst,cfg,p.mats)}));
-    }
-  },[os.hEst,os.mats,os.valorTotalEditado]);
+  const valorInformado=parseFloat(os.valorTotal)>0;
+  function setValor(e){const v=e.target.value;setOs(p=>({...p,valorTotal:v===""?"":(parseFloat(v)||0)}));}
 
   const totMat=os.mats.reduce((a,m)=>a+(parseFloat(m.v)||0),0);
   const hDesl=somaHoras(os.deslocamentos||[]);
@@ -1779,9 +1777,10 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
   }
   async function salvar(sf){
     if(!init&&!os.dataAgendamento){setErrFoto("Informe a data de agendamento do serviço.");return;}
+    if(!jaAprovado&&!(parseFloat(os.valorTotal)>0)){setErrFoto("Informe o valor do serviço.");return;}
     let numeroFinal=os.numero;
     if(numeroFinal==="gerando..."){numeroFinal=await genNum();}
-    const osParaSalvar={...os,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()};
+    const osParaSalvar={...os,valorTotal:parseFloat(os.valorTotal)||0,numero:numeroFinal,totMat,margem:mc.m,margemPct:mc.pct,status:sf||os.status,savedAt:new Date().toISOString()};
     onSave(osParaSalvar);
     // Notificar Discord apenas na criação de nova OS com agendamento
     if(!init&&osParaSalvar.dataAgendamento){
@@ -1945,12 +1944,12 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
         {isGer?(
           <>
             <div style={row}><div style={{flex:1,minWidth:140}}>
-              <label style={lbl}>Valor total ao cliente (R$)</label>
-              <input style={{...inp,color:os.valorTotalEditado?C.orange:C.amber,fontWeight:700}} type="number" min={0} value={os.valorTotal}
+              <label style={lbl}>Valor total ao cliente (R$) <span style={{color:C.red}}>*</span></label>
+              <input style={{...inp,color:C.amber,fontWeight:700,borderColor:(!valorInformado&&!jaAprovado)?C.red:undefined}} type="number" min={0} step="0.01" inputMode="decimal"
+                value={os.valorTotal===0||os.valorTotal===undefined||os.valorTotal===null?"":os.valorTotal} placeholder="0,00"
                 readOnly={jaAprovado&&!["orcamento","devolvida"].includes(os.status)}
-                onChange={e=>setOs(p=>({...p,valorTotal:parseFloat(e.target.value)||0,valorTotalEditado:true}))}/>
-              {os.valorTotalEditado&&!jaAprovado&&<div style={{fontSize:11,color:C.orange,marginTop:4}}>⚠ Valor editado manualmente</div>}
-              {!os.valorTotalEditado&&<div style={{fontSize:11,color:C.gray,marginTop:4}}>Calculado automaticamente</div>}
+                onChange={setValor}/>
+              {!valorInformado&&!jaAprovado&&<div style={{fontSize:11,color:C.red,marginTop:4}}>⚠ Valor do serviço obrigatório</div>}
             </div></div>
             <div style={{background:mColor+"22",border:"1px solid "+mColor+"44",borderRadius:10,padding:16,marginTop:4}}>
               <div style={{fontSize:10,color:C.gray,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Margem bruta estimada</div>
@@ -1963,12 +1962,13 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
           </>
         ):(
           <div>
-            <label style={lbl}>Valor do serviço (R$)</label>
-            <input style={{...inp,color:os.valorTotalEditado?C.orange:C.amber,fontWeight:700,fontSize:16}} type="number" min={0} value={os.valorTotal}
-              onChange={e=>setOs(p=>({...p,valorTotal:parseFloat(e.target.value)||0,valorTotalEditado:true}))}/>
-            {os.valorTotalEditado
-              ?<div style={{fontSize:11,color:C.orange,marginTop:4}}>⚠ Valor editado manualmente — <span style={{cursor:"pointer",textDecoration:"underline"}} onClick={()=>setOs(p=>({...p,valorTotal:calcValorServico(p.hEst,cfg,p.mats),valorTotalEditado:false}))}>recalcular</span></div>
-              :<div style={{fontSize:11,color:C.gray,marginTop:4}}>Calculado automaticamente ({os.hEst||0}min × R${(cfg&&cfg.precoHora)||120}/h)</div>}
+            <label style={lbl}>Valor do serviço (R$) <span style={{color:C.red}}>*</span></label>
+            <input style={{...inp,color:C.amber,fontWeight:700,fontSize:16,borderColor:(!valorInformado&&!jaAprovado)?C.red:undefined}} type="number" min={0} step="0.01" inputMode="decimal"
+              value={os.valorTotal===0||os.valorTotal===undefined||os.valorTotal===null?"":os.valorTotal} placeholder="0,00"
+              onChange={setValor}/>
+            {!valorInformado&&!jaAprovado
+              ?<div style={{fontSize:11,color:C.red,marginTop:4}}>⚠ Informe o valor total do serviço a ser cobrado do cliente</div>
+              :<div style={{fontSize:11,color:C.gray,marginTop:4}}>Valor total a ser cobrado do cliente</div>}
           </div>
         )}
       </div>
@@ -2001,6 +2001,7 @@ function Form({init,usuario,cfg,onSave,onCancel,usuarios}){
       })()}
       <div style={card}><label style={lbl}>Garantia</label><input style={inp} value={os.garantia} onChange={e=>s("garantia",e.target.value)} readOnly={!isGer}/></div>
 
+      {errFoto&&<div style={{...card,borderColor:C.red,background:C.red+"11",color:C.red,fontSize:13,fontWeight:600,padding:"12px 16px"}}>⚠ {errFoto}</div>}
       <div style={{display:"flex",gap:10,justifyContent:"flex-end",flexWrap:"wrap",paddingBottom:32}}>
         <button style={btnS} onClick={onCancel}>Cancelar</button>
         {!isGer&&<button style={btnP} onClick={()=>salvar()}>Salvar orçamento</button>}
