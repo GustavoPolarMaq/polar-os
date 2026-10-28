@@ -295,26 +295,126 @@ async function notificarPosVenda(osData,cfgAtual,usuarios){
 }
 
 // Salva uma OS individualmente (evita limite de 1MB do Firestore com lista inteira)
+// ── MÍDIAS: cada foto é um documento próprio na coleção "polar_midias" ──────
+// Antes, todas as fotos ficavam dentro do documento da OS (limite de 1MB do Firestore).
+// Passando do limite, TODAS viravam "[local]" e só existiam no celular do técnico.
+// Agora cada foto vai para polar_midias/{numero}__{id} e a OS guarda só a referência
+// (src:"[remoto]", remoteKey). Assim qualquer aparelho consegue ver as fotos.
+const CAMPOS_MIDIA_ARR=['fotosAntes','fotosDurante','fotosDepois'];
+const _midiaEnviada=new Set();   // chaves já gravadas no Firestore
+const _midiaEnviando={};          // uploads em andamento (evita duplicar)
+const _midiaCache={};             // chave -> Promise<src>
+function ehDataUrl(s){return typeof s==="string"&&s.startsWith("data:");}
+function ridDaMidia(f,campo,i){
+  const base=(f&&f.id!=null)?String(f.id):(campo+"_"+i+"_"+((f&&f.ts)||""));
+  return base.replace(/[^A-Za-z0-9_-]/g,"_").slice(0,120);
+}
+function chaveMidia(numero,f,campo,i){return String(numero).replace(/[^A-Za-z0-9_-]/g,"_")+"__"+ridDaMidia(f,campo,i);}
+function comTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error("timeout")),ms))]);}
+async function enviarUmaMidia(db,key,os,campo,f){
+  if(_midiaEnviada.has(key))return true;
+  if(!_midiaEnviando[key]){
+    _midiaEnviando[key]=comTimeout(
+      db.collection("polar_midias").doc(key).set({numero:os.numero,campo,src:f.src,tipo:f.tipo||"imagem",nome:f.nome||"",ts:f.ts||null,enviadoEm:new Date().toISOString()}),
+      30000
+    ).then(()=>{_midiaEnviada.add(key);_midiaCache[key]=Promise.resolve(f.src);return true;})
+     .catch(e=>{console.warn("Falha ao enviar foto",key,e.message);return false;})
+     .finally(()=>{delete _midiaEnviando[key];});
+  }
+  return _midiaEnviando[key];
+}
+// Envia as fotos ainda não enviadas e devolve a OS com as referências no lugar do base64
+async function enviarMidiasOS(os){
+  const db=getDb();
+  if(!db||!os||!os.numero||os.numero==="gerando...")return os;
+  const out={...os};
+  for(const campo of CAMPOS_MIDIA_ARR){
+    const arr=os[campo];
+    if(!Array.isArray(arr))continue;
+    const novo=[];
+    for(let i=0;i<arr.length;i++){
+      const f=arr[i];
+      if(f&&ehDataUrl(f.src)){
+        const key=chaveMidia(os.numero,f,campo,i);
+        const ok=await enviarUmaMidia(db,key,os,campo,f);
+        novo.push(ok?{...f,src:"[remoto]",remoteKey:key}:f);
+      }else novo.push(f);
+    }
+    out[campo]=novo;
+  }
+  return out;
+}
+// Versão para guardar no aparelho: troca fotos já enviadas por referência (economiza o espaço do celular)
+function osParaLocal(os){
+  if(!os||!os.numero)return os;
+  const out={...os};
+  for(const campo of CAMPOS_MIDIA_ARR){
+    const arr=os[campo];
+    if(!Array.isArray(arr))continue;
+    out[campo]=arr.map((f,i)=>{
+      if(f&&ehDataUrl(f.src)){
+        const key=chaveMidia(os.numero,f,campo,i);
+        if(_midiaEnviada.has(key))return {...f,src:"[remoto]",remoteKey:key};
+      }
+      return f;
+    });
+  }
+  return out;
+}
+function gravarListaLocal(lista){
+  try{localStorage.setItem("polar_polar_os",JSON.stringify((lista||[]).map(osParaLocal)));return true;}
+  catch(e){console.warn("localStorage cheio/indisponível:",e.message);return false;}
+}
+// Relê a lista do aparelho e troca por referência as fotos que já subiram (sem sobrescrever edições mais novas)
+function compactarListaLocal(){
+  try{
+    const raw=localStorage.getItem("polar_polar_os");
+    if(!raw)return;
+    gravarListaLocal(JSON.parse(raw));
+  }catch(e){}
+}
+function registrarMidiasRemotas(os){
+  for(const campo of CAMPOS_MIDIA_ARR){
+    (os&&Array.isArray(os[campo])?os[campo]:[]).forEach(f=>{if(f&&f.src==="[remoto]"&&f.remoteKey)_midiaEnviada.add(f.remoteKey);});
+  }
+}
+function buscarMidiaRemota(key){
+  if(!key)return Promise.resolve(null);
+  if(!_midiaCache[key]){
+    const db=getDb();
+    if(!db)return Promise.resolve(null);
+    _midiaCache[key]=comTimeout(db.collection("polar_midias").doc(key).get(),20000)
+      .then(d=>(d.exists&&d.data().src)||null)
+      .catch(e=>{console.warn("Falha ao baixar foto",key,e.message);delete _midiaCache[key];return null;});
+  }
+  return _midiaCache[key];
+}
+async function apagarMidiasOS(numero){
+  const db=getDb();
+  if(!db||!numero)return;
+  try{
+    const snap=await db.collection("polar_midias").where("numero","==",numero).get();
+    await Promise.all(snap.docs.map(d=>d.ref.delete()));
+  }catch(e){console.warn("apagarMidiasOS:",e.message);}
+}
+
 async function saveOSDoc(os){
   const db=getDb();
   if(!db)return false;
-  // Verificar tamanho: Firestore limita 1MB por doc
-  // Se OS tiver fotos/vídeos grandes, salvar versão reduzida no doc principal
-  // e manter fotos apenas no localStorage
-  let osSalvar={...os,savedAt:new Date().toISOString()};
+  // 1) Fotos vão cada uma para seu próprio documento; a OS guarda só a referência
+  let osSalvar={...(await enviarMidiasOS(os)),savedAt:new Date().toISOString()};
   const jsonStr=JSON.stringify(osSalvar);
   if(jsonStr.length>800000){
-    // Doc muito grande — remover fotos/vídeos do Firestore, manter só metadados
+    // Último recurso (ex.: sem permissão na coleção polar_midias): tira do doc principal
+    // apenas as fotos que NÃO conseguiram subir — as já enviadas ([remoto]) são preservadas
     const semMidia={...osSalvar};
-    const camposMidia=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
     let totalFotos=0;
-    for(const campo of camposMidia){
-      if(semMidia[campo]){
-        if(Array.isArray(semMidia[campo])){totalFotos+=semMidia[campo].length;semMidia[campo]=semMidia[campo].map(f=>({...f,src:'[local]',tipo:f.tipo||'img'}));}
-        else if(typeof semMidia[campo]==='string'&&semMidia[campo].length>100){semMidia[campo]='[local]';}
+    for(const campo of CAMPOS_MIDIA_ARR){
+      if(Array.isArray(semMidia[campo])){
+        semMidia[campo]=semMidia[campo].map(f=>{if(f&&ehDataUrl(f.src)){totalFotos++;return {...f,src:'[local]'};}return f;});
       }
     }
-    console.warn("saveOSDoc: OS "+os.numero+" muito grande ("+Math.round(jsonStr.length/1024)+"KB), fotos mantidas so local ("+totalFotos+" arquivos)");
+    console.warn("saveOSDoc: OS "+os.numero+" muito grande ("+Math.round(jsonStr.length/1024)+"KB), "+totalFotos+" fotos não enviadas mantidas só no aparelho");
     osSalvar=semMidia;
   }
   try{
@@ -334,19 +434,38 @@ async function saveOSDoc(os){
 function temFotosReais(campo){
   if(!campo)return false;
   if(typeof campo==='string')return campo!=='[local]'&&campo.length>100;
-  if(Array.isArray(campo))return campo.some(f=>f&&f.src&&f.src!=='[local]'&&f.src.length>100);
+  if(Array.isArray(campo))return campo.some(f=>f&&f.src&&(f.src==='[remoto]'||(f.src!=='[local]'&&f.src.length>100)));
   return false;
+}
+// Quantas fotos "de verdade" (base64 ou já no servidor) o campo tem
+function contaFotosReais(campo){
+  if(!Array.isArray(campo))return 0;
+  return campo.filter(f=>f&&f.src&&(f.src==='[remoto]'||ehDataUrl(f.src))).length;
 }
 // Merge de mídias: prefere sempre a versão com fotos reais
 function mergeOSMidias(base, local){
   const campos=['fotosAntes','fotosDurante','fotosDepois','assinatura'];
   const resultado={...base};
   for(const campo of campos){
-    const baseTem=temFotosReais(base[campo]);
-    const localTem=temFotosReais(local&&local[campo]);
-    if(!baseTem&&localTem){
-      resultado[campo]=local[campo];
+    if(campo==='assinatura'){
+      if(!temFotosReais(base[campo])&&temFotosReais(local&&local[campo]))resultado[campo]=local[campo];
+      continue;
     }
+    // Recupera item a item: se a base tem "[local]" e a outra versão tem a foto de verdade (mesmo id), usa a foto
+    const b=Array.isArray(base[campo])?base[campo]:[];
+    const l=Array.isArray(local&&local[campo])?local[campo]:[];
+    if(b.length===0&&l.length>0){resultado[campo]=l;continue;}
+    const porId={};
+    l.forEach(f=>{if(f&&f.id!=null)porId[String(f.id)]=f;});
+    resultado[campo]=b.map(f=>{
+      if(f&&f.src==='[local]'&&f.id!=null){
+        const outro=porId[String(f.id)];
+        if(outro&&outro.src&&(outro.src==='[remoto]'||ehDataUrl(outro.src)))return outro;
+      }
+      return f;
+    });
+    // Se a base ficou sem nenhuma foto real e a outra versão tem, prefere a outra
+    if(contaFotosReais(resultado[campo])===0&&contaFotosReais(l)>0)resultado[campo]=l;
   }
   return resultado;
 }
@@ -360,11 +479,14 @@ async function loadAllOS(){
     if(v)localData=JSON.parse(v);
   }catch(e){}
 
-  // Fazer backup de segurança do local antes de qualquer merge
-  // Nunca perder dados que estão no dispositivo
-  if(localData.length>0){
-    try{localStorage.setItem("polar_polar_os_backup",JSON.stringify(localData));}catch(e){}
-  }
+  // Backup antigo (versões anteriores gravavam uma cópia completa) — usado só como fonte de recuperação de fotos.
+  // Não gravamos mais cópias completas: elas lotavam o armazenamento do celular e faziam fotos se perderem.
+  let backupMap={};
+  try{
+    const b=JSON.parse(localStorage.getItem("polar_polar_os_backup")||"[]");
+    if(Array.isArray(b))b.forEach(o=>{if(o&&o.numero)backupMap[o.numero]=o;});
+  }catch(e){}
+  const temDataUrl=o=>CAMPOS_MIDIA_ARR.some(c=>Array.isArray(o&&o[c])&&o[c].some(f=>f&&ehDataUrl(f.src)));
 
   if(!db)return localData;
 
@@ -382,16 +504,23 @@ async function loadAllOS(){
     }
 
     const firebaseData=snap.docs.map(d=>d.data());
+    firebaseData.forEach(registrarMidiasRemotas);
 
     // Construir mapa indexado por numero
     const localMap={};
-    for(const os of localData){if(os.numero)localMap[os.numero]=os;}
+    for(const os of localData){
+      if(!os.numero)continue;
+      // Se o backup antigo ainda tem fotos de verdade que o local perdeu, recupera
+      localMap[os.numero]=backupMap[os.numero]?mergeOSMidias(os,backupMap[os.numero]):os;
+    }
+    for(const num of Object.keys(backupMap)){if(!localMap[num]&&temDataUrl(backupMap[num]))localMap[num]=backupMap[num];}
     const fbMap={};
     for(const os of firebaseData){if(os.numero)fbMap[os.numero]=os;}
 
     // Numeros únicos de ambas as fontes
     const todos=new Set([...Object.keys(localMap),...Object.keys(fbMap)]);
     const merged={};
+    const pend=[];
 
     for(const num of todos){
       const local=localMap[num];
@@ -400,7 +529,7 @@ async function loadAllOS(){
       if(!fb){
         // Só existe local — usar local e subir para Firebase
         merged[num]=local;
-        saveOSDoc(local).catch(e=>console.error("sync local->firebase:",e));
+        pend.push(saveOSDoc(local).catch(e=>{console.error("sync local->firebase:",e);return false;}));
         continue;
       }
       if(!local){
@@ -417,27 +546,29 @@ async function loadAllOS(){
         merged[num]=mergeOSMidias(local, fb);
         // Se o local tem fotos reais que o FB não tem → reenviar para o Firebase
         const versaoParaFB=mergeOSMidias(local, fb);
-        saveOSDoc(versaoParaFB).catch(e=>console.error("sync local->firebase:",e));
+        pend.push(saveOSDoc(versaoParaFB).catch(e=>{console.error("sync local->firebase:",e);return false;}));
       } else {
         // Firebase é mais recente — mas NUNCA sobrescrever fotos reais do local com placeholders
         const fbComFotosLocais=mergeOSMidias(fb, local);
         merged[num]=fbComFotosLocais;
-        // Se recuperamos fotos do local → regravar no Firebase com dados completos
-        const fbTemPlaceholder=['fotosAntes','fotosDurante','fotosDepois','assinatura'].some(c=>{
-          const campo=fb[c];
-          if(Array.isArray(campo))return campo.some(f=>f&&f.src==='[local]');
-          return campo==='[local]';
-        });
-        if(fbTemPlaceholder&&temFotosReais(local.fotosAntes)||temFotosReais(local.fotosDurante)||temFotosReais(local.fotosDepois)){
-          console.log("loadAllOS: recuperando fotos do local para OS",num);
-          saveOSDoc(fbComFotosLocais).catch(e=>console.error("merge-midia:",e));
+        // Se este aparelho tem fotos que ainda não estão no servidor → envia agora (recuperação)
+        if(temDataUrl(fbComFotosLocais)){
+          console.log("loadAllOS: enviando fotos deste aparelho para a OS",num);
+          pend.push(saveOSDoc(fbComFotosLocais).catch(e=>{console.error("merge-midia:",e);return false;}));
         }
       }
     }
 
     const resultFinal=Object.values(merged);
-    // Gravar no localStorage o resultado final — nunca apagar fotos reais
-    try{localStorage.setItem("polar_polar_os",JSON.stringify(resultFinal));}catch(e){}
+    // Gravar no aparelho — fotos já enviadas ficam só como referência (não lota o armazenamento)
+    gravarListaLocal(resultFinal);
+    // Quando todas as sincronizações terminarem bem, o backup antigo não é mais necessário (libera espaço)
+    Promise.all(pend).then(rs=>{
+      if(rs.every(r=>r!==false)&&!resultFinal.some(o=>temDataUrl(osParaLocal(o)))){
+        try{localStorage.removeItem("polar_polar_os_backup");}catch(e){}
+        gravarListaLocal(resultFinal);
+      }
+    });
     return resultFinal;
   }catch(e){
     console.error("loadAllOS falhou:",e.message);
@@ -480,6 +611,8 @@ function comprimirImagem(file, opcoes={}) {
         // Tentativas progressivas: começar em 800px (boa qualidade para campo)
         // e reduzir até caber no orçamento de bytes
         const tentativas = [
+          {maxW:1280, q:0.78},
+          {maxW:1024, q:0.75},
           {maxW:800,  q:0.80},
           {maxW:800,  q:0.65},
           {maxW:700,  q:0.70},
@@ -513,6 +646,53 @@ function comprimirImagem(file, opcoes={}) {
 
 // ── COMPONENTE: PAINEL DE MÍDIA ───────────────────────────────────────────
 // osAtual: objeto OS completo, para calcular orçamento de bytes por foto
+// Miniatura de foto/vídeo. Fotos "[remoto]" são baixadas do servidor (coleção polar_midias) sob demanda.
+function MidiaThumb({ item, onAbrir }) {
+  const remoto = item.src === "[remoto]";
+  const [src, setSrc] = useState(remoto ? null : item.src);
+  const [falhou, setFalhou] = useState(false);
+  const [tentativa, setTentativa] = useState(0);
+  useEffect(() => {
+    if (!remoto) { setSrc(item.src); return; }
+    let vivo = true;
+    setSrc(null); setFalhou(false);
+    buscarMidiaRemota(item.remoteKey).then(s => { if (!vivo) return; if (s) setSrc(s); else setFalhou(true); });
+    return () => { vivo = false; };
+  }, [item.src, item.remoteKey, tentativa]);
+  const caixa = { width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 6, background: C.surface };
+  const legenda = { fontSize: 8, color: C.gray, marginTop: 4, textAlign: "center", lineHeight: 1.3 };
+  if (item.src === "[local]") {
+    return (
+      <div style={{ ...caixa, cursor: "pointer" }} onClick={() => onAbrir(item)}>
+        <div style={{ fontSize: 28, opacity: 0.6 }}>{item.tipo === "video" ? "🎬" : "📷"}</div>
+        <div style={legenda}>{item.tipo === "video" ? "vídeo não enviado" : "foto não enviada"}</div>
+      </div>
+    );
+  }
+  if (remoto && !src) {
+    return falhou ? (
+      <div style={{ ...caixa, cursor: "pointer" }} onClick={() => setTentativa(t => t + 1)}>
+        <div style={{ fontSize: 22 }}>⚠️</div>
+        <div style={legenda}>não carregou — toque para tentar de novo</div>
+      </div>
+    ) : (
+      <div style={caixa}>
+        <div style={{ fontSize: 22 }}>⏳</div>
+        <div style={legenda}>carregando…</div>
+      </div>
+    );
+  }
+  if (item.tipo === "imagem") {
+    return <img src={src} alt={item.nome} style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }} onClick={() => onAbrir({ ...item, src })} />;
+  }
+  return (
+    <div style={{ ...caixa, cursor: "pointer" }} onClick={() => onAbrir({ ...item, src })}>
+      <div style={{ fontSize: 28 }}>🎬</div>
+      <div style={{ fontSize: 9, color: C.gray, marginTop: 4, textAlign: "center", wordBreak: "break-all" }}>{item.nome}</div>
+    </div>
+  );
+}
+
 function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura, osAtual }) {
   const [ampliado, setAmpliado] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -525,19 +705,9 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
     // garante que setCarregando(false) seja chamado depois de 30s.
     const timeoutId = setTimeout(() => { setCarregando(false); }, 30000);
     try {
-      // Calcular orçamento disponível por foto
-      // Limite seguro Firestore: 750KB total para mídias (deixar 50KB para dados textuais)
-      const LIMITE_MIDIA_BYTES = 750000;
-      let bytesOsBase = 0;
-      if(osAtual){
-        bytesOsBase = JSON.stringify(osAtual).length;
-      }
-      const bytesDisponiveis = Math.max(LIMITE_MIDIA_BYTES - bytesOsBase, 50000);
-      const totalFotosFuturas = itens.filter(i=>i.src!=='[local]').length + Array.from(files).length;
-      const maxBytesPorFoto = Math.floor(bytesDisponiveis / Math.max(totalFotosFuturas, 1));
-      // Mínimo de 40KB e máximo de 150KB por foto
-      const maxBytes = Math.min(150000, Math.max(40000, maxBytesPorFoto));
-      console.log("handleFiles: orçamento por foto =", Math.round(maxBytes/1024)+"KB ("+Array.from(files).length+" novas, "+itens.length+" existentes)");
+      // Cada foto agora é salva em um documento próprio (polar_midias), então não há mais
+      // "orçamento" dividido entre todas as fotos da OS. Até ~250KB por foto (boa qualidade).
+      const maxBytes = 250000;
       // Processar e adicionar foto a foto — salvar no localStorage após cada uma
       // para não perder nada se o técnico sair do app no meio do processo
       let itensAtuais = [...itens];
@@ -577,22 +747,7 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px,1fr))", gap: 8, marginBottom: 14 }}>
           {itens.map(item => (
             <div key={item.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", background: C.surface, border: `1px solid ${C.navyLight}`, aspectRatio: "1" }}>
-              {item.src === "[local]" ? (
-                <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 6, background: C.surface }}>
-                  <div style={{ fontSize: 28 }}>{item.tipo==="video"?"🎬":"📷"}</div>
-                  <div style={{ fontSize: 8, color: C.gray, marginTop: 4, textAlign: "center", lineHeight: 1.3 }}>{item.tipo==="video"?"vídeo neste dispositivo":"foto neste dispositivo"}</div>
-                </div>
-              ) : item.tipo === "imagem" ? (
-                <img src={item.src} alt={item.nome}
-                  style={{ width: "100%", height: "100%", objectFit: "cover", cursor: "pointer" }}
-                  onClick={() => setAmpliado(item)} />
-              ) : (
-                <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 6 }}
-                  onClick={() => setAmpliado(item)}>
-                  <div style={{ fontSize: 28 }}>🎬</div>
-                  <div style={{ fontSize: 9, color: C.gray, marginTop: 4, textAlign: "center", wordBreak: "break-all" }}>{item.nome}</div>
-                </div>
-              )}
+              <MidiaThumb item={item} onAbrir={setAmpliado}/>
               {!somenteLeitura && (
                 <button onClick={() => remover(item.id)}
                   style={{ position: "absolute", top: 4, right: 4, background: C.red, color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
@@ -640,8 +795,8 @@ function PainelMidia({ titulo, cor, obrigatorio, itens, onChange, somenteLeitura
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{ampliado.nome}</div>
               <div style={{ fontSize: 13, color: "#ccc", maxWidth: 300, lineHeight: 1.5 }}>
                 {ampliado.tipo==="video"
-                  ? "Vídeos são salvos apenas neste dispositivo. Por limitação técnica, vídeos não são enviados ao servidor — apenas fotos são sincronizadas entre dispositivos."
-                  : "Esta foto está salva apenas neste dispositivo e não pôde ser enviada ao servidor por limite de tamanho."}
+                  ? "Vídeos ainda não são enviados ao servidor. O arquivo original continua na galeria do celular de quem gravou."
+                  : "Esta foto foi registrada numa versão anterior do app e não chegou ao servidor. Se ainda estiver no celular do técnico, ela é enviada automaticamente quando ele abrir o app."}
               </div>
             </div>
           ) : ampliado.tipo === "imagem" ? (
@@ -965,7 +1120,7 @@ function PainelTrechos({titulo,cor,trechos,emAndamento,onSaida,onRetorno,onEncer
         const localData=JSON.parse(localRaw);
         const idx=localData.findIndex(x=>x.numero===osAtualizada.numero);
         if(idx>=0){localData[idx]=osAtualizada;}else{localData.unshift(osAtualizada);}
-        localStorage.setItem("polar_polar_os",JSON.stringify(localData));
+        gravarListaLocal(localData);
       }
     }catch(e){console.warn("auto-save local:",e);}
   }
@@ -3196,7 +3351,7 @@ export default function App(){
   async function saveList(l,osSalva){
     setLista(l);
     // Salva local imediatamente
-    try{localStorage.setItem("polar_polar_os",JSON.stringify(l));}catch(e){}
+    gravarListaLocal(l);
     // Salva no Firebase — se tiver OS específica, salva só ela (mais rápido)
     const db=getDb();
     if(!db){setSyncErr(true);return;}
@@ -3206,6 +3361,7 @@ export default function App(){
     } else {
       for(const os of l){const r=await saveOSDoc(os);if(!r)ok=false;}
     }
+    compactarListaLocal();
     setSyncErr(!ok);
   }
   async function saveCfg(c){setCfg(c);await storageSet("polar_cfg",c);}
@@ -3231,6 +3387,7 @@ export default function App(){
     // Apagar do Firestore
     const db=getDb();
     if(db){try{await db.collection("polar_os").doc(numero).delete();}catch(e){console.error("delete OS:",e);}}
+    apagarMidiasOS(numero);
     setCur(null);setView("list");
   }
   const isGer=(usuario&&usuario.role)==="gerencia"||(usuario&&usuario.role)==="admin";
